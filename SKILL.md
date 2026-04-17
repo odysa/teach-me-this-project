@@ -29,6 +29,30 @@ If the project is a GitHub URL and not cloned locally, clone it to `/tmp/<repo-n
 
 ---
 
+## Agent Dispatch Table
+
+This skill is orchestration-heavy. The orchestrator (main loop) holds the plan; subagents do the bounded, parallelizable work. Every step below that says "dispatch N subagents" **must** use the Agent tool — never inline the work into the orchestrator's context.
+
+| Step | Work | Dispatch |
+|------|------|----------|
+| 1.1 Architecture Discovery | Survey codebase, find papers | 1 subagent (`Explore`, thoroughness: very thorough) |
+| 1.2 Concept Dependency Graph | Synthesize survey into graph | Orchestrator (stateful synthesis) |
+| 1.3 Deep Dives | Per-concept research, source extraction | **3 parallel subagents** (`Explore`), split by layer (foundations / orchestration / execution) |
+| 1.4 Fill Gaps | Identify missing concepts | Orchestrator (synthesis) |
+| 1.5 Citation Gate | Verify every `file:LN-LN` tag | **3 parallel subagents** (`general-purpose`), same layer split |
+| 2.2 Chapter Writing | Write prose to `/tmp/.../chNN.md` | **3 parallel subagents** (`general-purpose`), same layer split |
+| 3 Round 1 Technical Accuracy | Cross-reference draft vs code | **2 parallel subagents** (`general-purpose`), split by chapter halves |
+| 3 Round 2 Pedagogy | Role-play target audience | 1 subagent (`general-purpose`), fresh context |
+| 4.0 Stage 1 Shell | Write CSS/JS skeleton | 1 subagent (`frontend-developer`) |
+| 4.0 Stage 2 Assembly | Stitch chapters into shell | Orchestrator (sequential Edit inserts) |
+| 4.2 Interactive Demos | Per-chapter demo HTML + JS | **3 parallel subagents** (`general-purpose`), same layer split |
+
+**Why this matters**: the orchestrator's context is the scarce resource. Anything the orchestrator reads directly — source files, full drafts, demo JS — crowds out the plan. Subagents return only short summaries (file lists, counts, diffs). The orchestrator stays slim and survives the whole run.
+
+**Return-value discipline**: every subagent's final message must be ≤200 words — a list of files written, a summary of issues found and fixed, or a count. Never quote chapter text, code blocks, or full logs back to the orchestrator. If an agent needs to pass detail forward, it writes to a file and reports the path.
+
+---
+
 ## Phase 1: Deep Codebase Investigation
 
 ### Step 1.1: Architecture Discovery
@@ -152,19 +176,21 @@ Add 1-3 supplementary concepts if needed.
 
 Every source snippet from Step 1.3 carries a `file.py:L42-L78` tag. **Verify every tag against the actual codebase now**, before any prose is written and long before HTML assembly — fixing a broken reference in research notes costs one sentence; fixing it after it's embedded in the HTML costs a re-render.
 
-For each snippet, run a cheap grep/read check:
+Dispatch **3 parallel subagents** (type: `general-purpose`), one per layer from Step 1.3 (Foundations / Orchestration / Execution). Each agent audits the snippets for its own layer — same split, so each agent already has the relevant mental model.
+
+For each snippet, the agent runs:
 - Read the cited file. Does the range exist?
 - Does the first line of the cited range match the first line of the snippet? (Line numbers drift between releases; use a distinctive identifier from the snippet — class name, function signature, comment — to relocate if the range has shifted.)
 - If the snippet contains a class/function name, does `grep -n "<name>" <file>` actually find it at the expected location?
 
-Produce a `citation_audit.md`:
+Each agent produces a per-layer `citation_audit_<layer>.md`:
 ```
 OK      sglang/srt/managers/scheduler.py:L142-L178   (event_loop_normal)
 SHIFT   sglang/srt/layers/attention.py:L55-L88       → now at L61-L94
 MISSING sglang/srt/legacy/old_router.py:L12-L30      (file deleted; use managers/router.py:L40-L58)
 ```
 
-Apply fixes: update line ranges in the research notes, relocate snippets that moved, drop or replace references to deleted code. Only after the audit is clean does Phase 2 begin.
+Each agent also **applies fixes in place** to the research notes for its layer: update line ranges, relocate snippets that moved, drop or replace references to deleted code. The orchestrator reads only the summary counts (OK / SHIFT / MISSING) from each agent's final report — not the individual snippet contents. Only after all three reports return clean does Phase 2 begin.
 
 ---
 
@@ -281,11 +307,14 @@ Dispatch **2 parallel subagents** to cross-reference the draft against actual so
 
 ### Round 2: Pedagogy
 
-Review the assembled draft sequentially:
-- Flag undefined terms used before introduction
-- Flag leaps in complexity without scaffolding
-- Ensure "why should I care" motivation exists per chapter
-- This review can be done inline (no need for a separate agent if the draft is solid)
+Dispatch **1 subagent** (type: `general-purpose`) role-playing the target AUDIENCE level. The agent reads every chapter file from `/tmp/tutorial-*/ch*.md` in order, simulating a first-time reader, and produces a `pedagogy_review.md` listing:
+- Undefined terms used before introduction (with chapter:paragraph refs)
+- Leaps in complexity where scaffolding is missing
+- Chapters lacking "why should I care" motivation
+- Analogies that don't land for the target audience
+- Suggested diagram insertions where prose is carrying too much load
+
+The agent then **applies fixes directly** to the chapter files — adding forward-reference definitions, extra paragraphs, or `What Is X?` sections where flagged. The orchestrator reads only the summary (issue count and diff count) from the agent's report. Running this as a dedicated agent matters because the orchestrator's context is saturated with code, citations, and HTML; a fresh agent reads the draft the way a real reader would.
 
 ---
 
@@ -414,9 +443,19 @@ Style `.compare-table` with the design system's card surface, border, and radius
 
 Style `.further-reading` as a subtle card at the bottom of each chapter (before the key takeaway callout). Use the design system's secondary surface with a border. Paper links use the accent color. `.paper-meta` is dimmer/smaller text for authors and year. This section is the bridge between "how the code works" and "why the field works this way."
 
-### Step 4.2: Build Interactive Demos
+### Step 4.2: Build Interactive Demos (parallel by layer)
 
-For each chapter, implement the interactive visualization. Every demo follows this pattern:
+Dispatch **3 parallel subagents** (type: `general-purpose`), split by the same Foundations / Orchestration / Execution layers used in Step 1.3 and Step 2.2. Each agent writes the demo HTML fragment + JS for its chapters directly to disk, one file per demo:
+
+```
+/tmp/tutorial-<timestamp>/demos/ch01.demo.html   (the <div class="interactive">...</div> block)
+/tmp/tutorial-<timestamp>/demos/ch01.demo.js     (the JS that drives it — uses rand(), not Math.random())
+...
+```
+
+Each agent receives: the chapter prose for its layer, the design system tokens, the seeded-RNG helper signature, and the demo pattern below. Agents report back only the list of files written. The orchestrator injects them during Stage 2 assembly (Step 4.0) — the HTML block goes inside the chapter's section, the JS block goes before the `<!-- CHAPTER_SCRIPTS -->` marker.
+
+Every demo follows this pattern:
 
 ```html
 <div class="interactive">
