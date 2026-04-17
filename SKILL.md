@@ -58,11 +58,15 @@ This graph determines chapter order. Target: **8-16 chapters**.
 
 ### Step 1.3: Deep Dives per Concept
 
-Dispatch **3 parallel subagents** (type: `Explore`) to investigate the codebase, split by concept groups:
+Dispatch **3 parallel subagents** (type: `Explore`) to investigate the codebase. **Split by architectural layer, not numeric thirds** — concepts in the same layer share vocabulary and code paths; concepts across layers don't. A thirds-split forces agents to research each other's dependencies in parallel, producing inconsistent terminology and duplicated work.
 
-- **Agent A**: Concepts 1–N/3 (foundational)
-- **Agent B**: Concepts N/3+1–2N/3 (intermediate)
-- **Agent C**: Concepts 2N/3+1–N (advanced)
+Group the concepts from the dependency graph into these buckets (adjust names per project domain):
+
+- **Agent A — Foundations**: primitives, data structures, memory model, core abstractions. Covers anything the other layers import from.
+- **Agent B — Orchestration**: schedulers, routers, state machines, control flow. The "manager" layer that decides what runs when.
+- **Agent C — Execution**: hot paths, kernels, forward passes, the actual work. The layer that consumes foundations and obeys orchestration.
+
+If a concept straddles two buckets, assign it to the **lower** layer (it's a dependency, not a consumer). If a bucket is empty for a given project, redistribute — three agents by layer is the ceiling, not a quota.
 
 Each agent produces for every concept:
 
@@ -143,6 +147,24 @@ Review all Phase 1 outputs and identify:
 - Cross-cutting concerns worth a chapter
 
 Add 1-3 supplementary concepts if needed.
+
+### Step 1.5: Cheap Citation Gate (run BEFORE drafting)
+
+Every source snippet from Step 1.3 carries a `file.py:L42-L78` tag. **Verify every tag against the actual codebase now**, before any prose is written and long before HTML assembly — fixing a broken reference in research notes costs one sentence; fixing it after it's embedded in the HTML costs a re-render.
+
+For each snippet, run a cheap grep/read check:
+- Read the cited file. Does the range exist?
+- Does the first line of the cited range match the first line of the snippet? (Line numbers drift between releases; use a distinctive identifier from the snippet — class name, function signature, comment — to relocate if the range has shifted.)
+- If the snippet contains a class/function name, does `grep -n "<name>" <file>` actually find it at the expected location?
+
+Produce a `citation_audit.md`:
+```
+OK      sglang/srt/managers/scheduler.py:L142-L178   (event_loop_normal)
+SHIFT   sglang/srt/layers/attention.py:L55-L88       → now at L61-L94
+MISSING sglang/srt/legacy/old_router.py:L12-L30      (file deleted; use managers/router.py:L40-L58)
+```
+
+Apply fixes: update line ranges in the research notes, relocate snippets that moved, drop or replace references to deleted code. Only after the audit is clean does Phase 2 begin.
 
 ---
 
@@ -228,15 +250,22 @@ Description of the interactive visualization.
 One callout box summarizing the essential insight.
 ```
 
-### Step 2.2: Write Chapters in Parallel
+### Step 2.2: Write Chapters in Parallel (to disk, one file per chapter)
 
-Dispatch **3 parallel subagents** to write chapter content:
+Dispatch **3 parallel subagents** aligned with the layer split from Step 1.3 (Foundations / Orchestration / Execution). Each agent writes its chapters **directly to disk** — never back into the conversation — as one file per chapter:
 
-- **Agent 1**: Introduction + Chapters 1–N/3 (~3000-5000 words)
-- **Agent 2**: Chapters N/3+1–2N/3 (~3000-5000 words)
-- **Agent 3**: Chapters 2N/3+1–N + Conclusion (~3000-5000 words)
+```
+/tmp/tutorial-<timestamp>/ch01.md
+/tmp/tutorial-<timestamp>/ch02.md
+...
+/tmp/tutorial-<timestamp>/chNN.md
+/tmp/tutorial-<timestamp>/intro.md
+/tmp/tutorial-<timestamp>/conclusion.md
+```
 
-Each agent receives the full concept dependency graph, the deep-dive traces for their concepts, the chapter template, and the target AUDIENCE level.
+Why per-chapter files: the orchestrator never accumulates the full draft in its context window, the assembler in Phase 4 can stream chapters in one at a time, and a failed chapter can be re-run in isolation without re-drafting everything.
+
+Each agent receives: the full concept dependency graph, the verified citation list from Step 1.5, the deep-dive traces for their concepts, the chapter template, and the target AUDIENCE level. Each agent reports back only: (1) the list of files written, (2) any citations that turned out to be unusable despite passing Step 1.5.
 
 ---
 
@@ -262,7 +291,25 @@ Review the assembled draft sequentially:
 
 ## Phase 4: Interactive HTML Generation
 
-### Step 4.1: HTML Architecture
+### Step 4.0: Two-Stage Assembly (Shell → Chapters)
+
+Never have a single agent write the entire HTML in one pass. Split the work:
+
+**Stage 1 — Shell agent**. Dispatch one subagent to write ONLY the HTML shell to `$OUTPUT`:
+- `<head>` with meta tags
+- Full `<style>` block (CSS custom properties from the design system, all layout/component styles, demo primitives)
+- `<body>` layout: sidebar, main content container, hamburger, overlay
+- An empty `<main id="chapters"></main>` placeholder — chapters will be injected here
+- `<script>` block with: navigation JS, `<!-- CHAPTER_SCRIPTS -->` marker for demo JS, RNG seeding helper, init code
+- No chapter prose. The shell is ~400-800 lines.
+
+**Stage 2 — Assembler (main loop, not a subagent)**. The orchestrator reads `/tmp/tutorial-*/chNN.md` one file at a time, converts each to the chapter HTML fragment (see Step 4.2), and appends it into `<main id="chapters">` using Edit tool inserts. After each insert, also append the chapter's demo JS block before the `<!-- CHAPTER_SCRIPTS -->` marker.
+
+Why the orchestrator, not a subagent: chapters accumulate, context doesn't. The orchestrator processes one chapter per tool call; the full assembled HTML never needs to be held in any single context. Subagents are appropriate for writing chapter prose (parallel, independent) but assembly is inherently sequential and stateful — use direct tool calls.
+
+Checkpoint after every 3 chapters: verify the file still parses (grep for balanced tags, no stray `<!-- CHAPTER_SCRIPTS -->` duplication).
+
+### Step 4.1: HTML Shell
 
 Write a **single self-contained HTML file** with zero external dependencies. Must work by double-clicking in a browser.
 
@@ -390,6 +437,19 @@ For each chapter, implement the interactive visualization. Every demo follows th
 3. **Stat counters** make abstract concepts concrete (e.g., "Cache hit rate: 73%").
 4. **Reset buttons** let users replay. No dead-end states.
 5. **Progressive complexity**: first interaction is a single button click.
+6. **Determinism: seed every RNG**. Demos that use randomness (arrival times, acceptance rates, token samples, cache evictions) must be reproducible across reloads — two users comparing notes should see the same numbers. Use a tiny seeded PRNG (mulberry32 is ~4 lines); the shell must include it once in the global `<script>` block and every demo must draw from `rand()` (seeded) instead of `Math.random()`. Reset buttons re-seed from a fixed value so the "same" run really is the same run.
+
+```js
+// Include once in the shell's <script> block — every demo uses rand() not Math.random()
+let __seed = 0x9e3779b9;
+function reseed(s) { __seed = (s >>> 0) || 0x9e3779b9; }
+function rand() {
+  let t = __seed = (__seed + 0x6d2b79f5) >>> 0;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+```
 
 **Common demo types**:
 
@@ -424,13 +484,17 @@ For each chapter, implement the interactive visualization. Every demo follows th
 
 2. **One interactive demo per chapter, minimum.** Text-only chapters lose engagement.
 
-3. **Never have a single agent write the entire HTML file.** It will exceed context limits. Write prose chapters first, then generate the HTML shell + assemble.
+3. **Never have a single agent write the entire HTML file.** It will exceed context limits. Chapters → per-file disk writes in Step 2.2 → shell agent in Step 4.0 → orchestrator stitches with Edit inserts. See Step 4.0 for the exact two-stage assembly protocol.
 
-4. **Interactive demos must have reset buttons.** Users WILL get the demo into a weird state.
+4. **Verify citations early (Step 1.5), not late.** A broken `file.py:L42-L78` reference caught in research notes costs one edit; the same error caught in Round 1 review costs a re-render of every chapter that references it.
 
-5. **Stats counters make abstract concepts click.** "Cache hit rate: 73%" beats "the cache frequently avoids recomputation."
+5. **Split research by architectural layer, not by chapter count.** Concepts in the same layer share vocabulary; concepts across layers don't. Thirds-splitting makes agents research each other's dependencies in parallel.
 
-6. **Side-by-side comparison is the most powerful demo type.** "Without X" vs "With X" simultaneously gives immediate intuition.
+6. **Interactive demos must have reset buttons AND seeded RNG.** Reset alone isn't enough if `Math.random()` reshuffles the state on every click — two users comparing notes need to see identical numbers. Seed once in the shell, reseed on reset.
+
+7. **Stats counters make abstract concepts click.** "Cache hit rate: 73%" beats "the cache frequently avoids recomputation."
+
+8. **Side-by-side comparison is the most powerful demo type.** "Without X" vs "With X" simultaneously gives immediate intuition.
 
 7. **Real source code builds trust that pseudocode cannot.** For every core mechanism, include the actual implementation trimmed to 10-40 lines with inline annotations. Source snippets also catch the writer — if you can't find a clean snippet, you don't understand the mechanism well enough.
 
