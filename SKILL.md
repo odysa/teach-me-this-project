@@ -68,7 +68,7 @@ This skill is orchestration-heavy. The orchestrator (main loop) holds the plan; 
 | 1.1 Architecture Discovery | Survey codebase, find papers | 1 subagent (`Explore`, thoroughness: very thorough) |
 | 1.2 Concept Dependency Graph | Synthesize survey into graph | Orchestrator (stateful synthesis) |
 | 1.3 Deep Dives | Per-concept research, source extraction | **3 parallel subagents** (`Explore`), split by layer (foundations / orchestration / execution) |
-| 1.4 Fill Gaps | Identify missing concepts | Orchestrator (synthesis) |
+| 1.4 Chapter Planning | Read all Phase 1 research, decide final chapter list (merges/splits/drops/adds), produce binding `chapter_plan.md` | 1 subagent (`general-purpose`) |
 | 1.5 Citation Gate | Verify every `file:LN-LN` tag | **3 parallel subagents** (`general-purpose`), same layer split |
 | 1.6 Consistency Bible | Synthesize terminology / notation / abbreviations / cross-ref map | 1 subagent (`general-purpose`) |
 | 2.2 Raw Draft | Write structured bullets/facts/snippets per chapter | **3 parallel subagents** (`general-purpose`), same layer split |
@@ -198,14 +198,74 @@ Example:
 A specific visualization: what the user inputs/clicks, what animates, what insight it delivers.
 ```
 
-### Step 1.4: Fill Gaps
+### Step 1.4: Chapter Planning (lock in the structure before drafting)
 
-Review all Phase 1 outputs and identify:
-- Missing links in the concept chain
-- Prerequisite knowledge the audience might lack
-- Cross-cutting concerns worth a chapter
+The initial dependency graph from Step 1.2 was built off the architecture survey alone — shallow. After Step 1.3's deep dives the picture is clearer: some concepts should merge, some should split, some turn out to be too thin for their own chapter, some were missing entirely. **Decide the final chapter structure here, once, before any drafting begins.** Changing chapter boundaries after Phase 2 is expensive (re-splits prose, re-runs reviews, re-writes demos).
 
-Add 1-3 supplementary concepts if needed.
+Dispatch **1 subagent** (type: `general-purpose`) to read every Phase 1 artifact — the architecture survey (1.1), initial dependency graph (1.2), and all three layers of deep-dive traces (1.3) — and produce a binding `/tmp/tutorial-<timestamp>/chapter_plan.md`:
+
+```markdown
+# Chapter Plan
+
+## Final Chapter List (N chapters, target 8-16)
+
+### Ch 1: <Title>
+- **Subtitle**: <one-sentence hook>
+- **Layer**: foundations | orchestration | execution
+- **Covers**: <list of concepts from Step 1.3 deep-dive traces>
+- **Scope (in)**: <what this chapter teaches>
+- **Scope (out)**: <what's deliberately deferred to a later chapter>
+- **Prerequisite chapters**: none | [2, 3]
+- **Consumed by**: [5, 7]
+- **Depth**: shallow (overview) | medium (mechanism) | deep (implementation-level)
+- **Target length**: <word count from the length targets in Step 1.6>
+- **Primary source files**: <list>
+- **Key snippets**: <references to verified citations>
+- **Interactive demo anchor**: <one-line concrete idea>
+- **Figure/diagram anchor**: <architecture / sequence / state / timeline>
+- **Risk notes**: <e.g. "overlaps with Ch 3 — make the split crisp">
+
+### Ch 2: ...
+(one entry per chapter)
+
+## Decisions Log
+Explicitly record the non-obvious choices so the plan is auditable.
+
+### Merges
+- "Chunked prefill" + "Prefill scheduling": researched separately in 1.3 but one chapter reads better because they share the same decision point.
+
+### Splits
+- "Attention" was one unit in 1.2; becomes Ch 7 (math intuition) + Ch 8 (attention backends / FlashAttention / FlashInfer) because the second half is backend-specific and interrupts the math story.
+
+### Drops
+- "Logging infrastructure" researched but no chapter — out of scope for a how-it-works tutorial.
+
+### Added (gap-filling)
+- "What is paged memory?" — new Ch 4 as a prerequisite for KV cache, since neither 1.2 nor 1.3 flagged that readers won't have this concept.
+
+## Final Dependency Graph
+<revised from 1.2, reflecting merge/split/add decisions>
+Ch1 → Ch2 → Ch3 → Ch4 → {Ch5, Ch6} → Ch7 → Ch8 → ...
+
+## Chapter Ordering Rationale
+- Opens with <Ch 1> because <reason>
+- Closes with <Ch N> because <reason>
+- Crossover point (advanced material begins): Ch K
+```
+
+The agent applies these rules while planning:
+- **No chapter lives below 1,000 words of material** — if the deep-dive trace can't support that, merge into a sibling.
+- **No chapter carries more than three independent concepts** — if it does, split.
+- **Every chapter's prerequisites must appear earlier in the list** — the final graph is a topological sort.
+- **Foundations come first, execution comes last** — respect the layer split even if a specific concept's researcher gave it a different priority.
+- **Audience-gated depth** — beginner audiences get shallower chapters with fewer concepts each; expert audiences tolerate denser merges.
+
+The agent reports back the chapter count and the path to the plan — nothing more. The plan becomes **the binding contract** for every downstream step:
+- Step 1.5 Citation Gate audits snippets against the final chapter list (not the 1.2 concept list).
+- Step 1.6 Consistency Bible is built per the final chapter titles, cross-reference map, and length targets.
+- Step 2.2 Raw Draft, Step 2.4 Prose Pass, and Step 4.2 Demos all work from the plan.
+
+If any downstream step discovers the plan is wrong (e.g., Ch 5 can't actually stand on its own), the orchestrator re-dispatches Step 1.4 with the failure note — **never** edits the plan ad-hoc mid-draft.
 
 ### Step 1.5: Cheap Citation Gate (run BEFORE drafting)
 
@@ -470,7 +530,7 @@ Subtitle: <one-line hook>
 - <one sentence>
 ```
 
-Each writer receives: the concept dependency graph, the verified citation list (Step 1.5), the Consistency Bible (Step 1.6), the deep-dive traces for their concepts, the target AUDIENCE level. Writers **do not write prose** and must not — a writer that drifts into paragraphs fails the review in Step 2.3.
+Each writer receives: **the binding chapter plan from Step 1.4** (title, subtitle, scope in/out, prerequisites, depth, target length for each assigned chapter), the verified citation list (Step 1.5), the Consistency Bible (Step 1.6), the deep-dive traces for their concepts, the target AUDIENCE level. Writers do not invent their own chapter titles, subtitles, or scope boundaries — those come from the plan. Writers **do not write prose** and must not — a writer that drifts into paragraphs fails the review in Step 2.3.
 
 Each writer reports back the list of files written and any citations that turned out to be unusable.
 
@@ -908,7 +968,9 @@ Fixes are applied directly to the HTML file. If a fix requires re-rendering a ch
 
 ## Key Lessons
 
-1. **Concept order is everything.** If chapter 5 uses a term from chapter 8, the reader is lost. The dependency graph in Step 1.2 is the most important artifact.
+1. **Concept order is everything.** If chapter 5 uses a term from chapter 8, the reader is lost. The dependency graph in Step 1.2 is a first pass; the **binding** order is locked in Step 1.4 Chapter Planning after deep dives, because Step 1.3 reveals merges/splits that 1.2 can't see.
+
+1b. **Lock in chapter structure before drafting, never during.** Changing chapter boundaries after Phase 2 begins is the most expensive mistake in the pipeline — it cascades into re-splits of prose, re-runs of per-chapter reviews, re-writes of demos, and re-assembly of HTML. Step 1.4 is the single gate. If a downstream step reveals the plan is wrong, re-dispatch Step 1.4 to produce a new plan; do not ad-hoc mid-draft edits.
 
 2. **One interactive demo per chapter, minimum.** Text-only chapters lose engagement.
 
