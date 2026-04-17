@@ -292,7 +292,7 @@ Write a **single self-contained HTML file** with zero external dependencies. Mus
 - Smooth chapter transitions (fade + slide animation)
 - Code blocks with keyword highlighting (inline, no external deps)
 - Chapter-to-chapter navigation (prev/next buttons)
-- Light theme by default with dark via `prefers-color-scheme: dark`
+- **Theme follows the design system, not the OS.** Use only the palette the design system defines. Do NOT add a `prefers-color-scheme: dark` override with invented dark colors — if the brand is fundamentally a light (or dark) design, honor that identity. Only emit a dark-mode block when the design system *explicitly* specifies a dark palette alongside the light one.
 - All styling via CSS custom properties so the design system is a single block of overrides
 
 **Apply the resolved design system** from the Parse Arguments step. Use the design tokens for:
