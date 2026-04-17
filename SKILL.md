@@ -41,7 +41,8 @@ This skill is orchestration-heavy. The orchestrator (main loop) holds the plan; 
 | 1.4 Fill Gaps | Identify missing concepts | Orchestrator (synthesis) |
 | 1.5 Citation Gate | Verify every `file:LN-LN` tag | **3 parallel subagents** (`general-purpose`), same layer split |
 | 2.2 Chapter Writing | Write prose to `/tmp/.../chNN.md` | **3 parallel subagents** (`general-purpose`), same layer split |
-| 3 Round 1 Technical Accuracy | Cross-reference draft vs code | **2 parallel subagents** (`general-purpose`), split by chapter halves |
+| 2.3 Per-Chapter Review | Review + fix each chapter the moment it's written | **N parallel subagents** (`general-purpose`), **one per chapter file**; fires as each Step 2.2 writer completes |
+| 3 Round 1 Cross-Chapter Consistency | Terminology, redundancy, cross-refs across chapters | **2 parallel subagents** (`general-purpose`), split by chapter halves |
 | 3 Round 2 Pedagogy | Role-play target audience | 1 subagent (`general-purpose`), fresh context |
 | 4.0 Stage 1 Shell | Write CSS/JS skeleton | 1 subagent (`frontend-developer`) |
 | 4.0 Stage 2 Assembly | Stitch chapters into shell | Orchestrator (sequential Edit inserts) |
@@ -293,17 +294,59 @@ Why per-chapter files: the orchestrator never accumulates the full draft in its 
 
 Each agent receives: the full concept dependency graph, the verified citation list from Step 1.5, the deep-dive traces for their concepts, the chapter template, and the target AUDIENCE level. Each agent reports back only: (1) the list of files written, (2) any citations that turned out to be unusable despite passing Step 1.5.
 
+### Step 2.3: Per-Chapter Review (immediate, one reviewer per chapter)
+
+As soon as a chapter lands on disk, it gets reviewed — don't wait for the whole draft. Per-chapter reviewers are cheaper than bulk reviewers (smaller context, tighter scope) and catch issues while the topic is still fresh and the fix is still local to one file.
+
+**Trigger**: the moment a Step 2.2 writer agent reports completion, the orchestrator immediately fans out review agents — one per chapter file that agent produced. Do not wait for all three writers to finish. Each writer's completion is its own dispatch opportunity.
+
+Dispatch **N parallel subagents** (type: `general-purpose`, one per chapter file), each scoped to exactly one chapter:
+
+Each reviewer receives:
+- Path to its single chapter file (e.g., `/tmp/tutorial-*/ch05.md`)
+- The concept dependency graph (to check forward references)
+- The verified citation list from Step 1.5 (ground truth for every source snippet in the chapter)
+- The chapter template (structural checklist)
+- The deep-dive trace for this chapter's concept (factual ground truth)
+- The target AUDIENCE level
+
+Each reviewer checks (in order):
+
+1. **Structure**: every required section from the chapter template is present (The Problem, The Idea, How It Works, Source Code, Why This Not That, Key Takeaway, Interactive Demo idea, Papers & References).
+2. **Citation fidelity**: every `file.py:L42-L78` tag in source-code blocks matches the verified citation list from Step 1.5. Every snippet body is verbatim from the real file (re-read the file; diff against the snippet). Annotations are accurate.
+3. **Factual accuracy**: every technical claim is supported by the deep-dive trace or the actual code. Class/function names are real. Data-structure descriptions match. Algorithm complexities are correct.
+4. **Forward-reference hygiene**: if the chapter uses a term that's defined in a later chapter, the term must be briefly defined in place or explicitly marked "covered in Ch N."
+5. **Demo is concrete**: the interactive demo description specifies inputs, outputs, animations, and stats — not just "a visualization of X."
+
+Each reviewer **applies fixes in place** to the chapter file and returns a ≤150-word structured report:
+```
+CHAPTER: 05_radix_cache.md
+STRUCTURE: ok
+CITATIONS: fixed 2 (L142→L148, L201→L208 drift)
+FACTS: fixed 1 (said O(n), actual O(n log n))
+FORWARD-REFS: added 1 inline definition ("eviction", forward to Ch 6)
+DEMO: ok
+UNFIXABLE: 0
+```
+
+If a reviewer cannot fix something (e.g., a snippet the chapter depends on was actually deleted from the codebase), it flags `UNFIXABLE: <count>` with a brief description. The orchestrator collects these and, if any chapter has unfixable issues, re-dispatches that chapter's original writer with the failure report attached.
+
+Only after every chapter has a clean review report does Phase 3 begin.
+
 ---
 
 ## Phase 3: Review
 
-### Round 1: Technical Accuracy
+### Round 1: Cross-Chapter Consistency
 
-Dispatch **2 parallel subagents** to cross-reference the draft against actual source code:
-- Verify class/function names match the codebase
-- Verify data structure descriptions are accurate
-- Verify source code snippets are verbatim (re-read actual file and diff)
-- Fix any drift, stale references, or renamed code
+Per-chapter reviews (Step 2.3) already caught every per-chapter accuracy issue. Round 1 now focuses only on problems no single-chapter reviewer can see:
+
+Dispatch **2 parallel subagents**, each reading half the chapters in order:
+- Terminology drift — the same concept called three different names across chapters
+- Redundant explanations — the same idea explained from scratch in two chapters
+- Broken cross-references — "as covered in Ch 3" where Ch 3 doesn't cover it
+- Inconsistent notation or code style between chapters
+- Chapter-to-chapter transitions that don't follow the dependency graph
 
 ### Round 2: Pedagogy
 
@@ -592,6 +635,8 @@ Every attribute references a design-system token; swap the theme and the diagram
 3. **Never have a single agent write the entire HTML file.** It will exceed context limits. Chapters → per-file disk writes in Step 2.2 → shell agent in Step 4.0 → orchestrator stitches with Edit inserts. See Step 4.0 for the exact two-stage assembly protocol.
 
 4. **Verify citations early (Step 1.5), not late.** A broken `file.py:L42-L78` reference caught in research notes costs one edit; the same error caught in Round 1 review costs a re-render of every chapter that references it.
+
+4b. **Review each chapter the moment it lands.** Step 2.3 dispatches a dedicated reviewer per chapter file as soon as its writer finishes — don't batch-review at the end. A per-chapter reviewer has narrow scope and fresh context; a bulk reviewer reading 16 chapters at once develops blind spots, misses per-chapter structural gaps, and has no budget to re-read every source file the chapter cites. Bulk review (Phase 3 Round 1) then shrinks to only what needs cross-chapter vision: terminology drift, redundancy, broken cross-refs.
 
 5. **Split research by architectural layer, not by chapter count.** Concepts in the same layer share vocabulary; concepts across layers don't. Thirds-splitting makes agents research each other's dependencies in parallel.
 
