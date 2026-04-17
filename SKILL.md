@@ -18,7 +18,7 @@ Extract from `$ARGUMENTS`:
 - **AUDIENCE**: `beginner`, `intermediate` (default), or `expert`
 - **DESIGN**: Optional design system brand (default: `claude`). Use `--design <brand>` to apply a different brand. Run `npx -y getdesign@latest add <brand>` to install, then read the resulting `DESIGN.md` for tokens. If the brand is `claude` or omitted, use the built-in Claude design tokens below.
 - **FOCUS**: Optional specific subsystem to emphasize (e.g., "the scheduler", "the plugin system")
-- **OUTPUT**: Output filename (default: `tutorial.html`)
+- **OUTPUT**: Output filename. Default: `<project_name>_tutorial.html`, where `<project_name>` is the last path segment of `PROJECT_PATH` (or the repo name if it's a GitHub URL), lowercased with non-alphanumerics replaced by `_`. Examples: `./mini-sglang` → `mini_sglang_tutorial.html`; `https://github.com/vllm-project/vllm` → `vllm_tutorial.html`.
 
 If the project is a GitHub URL and not cloned locally, clone it to `/tmp/<repo-name>` first.
 
@@ -438,6 +438,7 @@ For each chapter, implement the interactive visualization. Every demo follows th
 4. **Reset buttons** let users replay. No dead-end states.
 5. **Progressive complexity**: first interaction is a single button click.
 6. **Determinism: seed every RNG**. Demos that use randomness (arrival times, acceptance rates, token samples, cache evictions) must be reproducible across reloads — two users comparing notes should see the same numbers. Use a tiny seeded PRNG (mulberry32 is ~4 lines); the shell must include it once in the global `<script>` block and every demo must draw from `rand()` (seeded) instead of `Math.random()`. Reset buttons re-seed from a fixed value so the "same" run really is the same run.
+7. **Prefer inline SVG diagrams for structural/spatial concepts.** For anything with geometry — architecture, memory layout, dataflow, tree structure, attention patterns, pipeline stages — a labeled SVG diagram is almost always clearer than prose or a stack of `<div>`s. Author SVG directly inline (no external libs, no Mermaid): `<svg viewBox="0 0 800 400">` with `<rect>`, `<circle>`, `<path>`, `<text>`, and `<line>`. Use CSS custom properties (`fill="var(--accent)"`) so the diagram inherits the design system. Animate via `<animate>` or by toggling classes from JS on interaction. Every chapter that introduces a data structure, a pipeline, or a cross-component relationship should include at least one SVG diagram — either as the primary demo or as a standalone figure alongside the demo.
 
 ```js
 // Include once in the shell's <script> block — every demo uses rand() not Math.random()
@@ -455,16 +456,21 @@ function rand() {
 
 | Demo Type | Good For | Implementation |
 |-----------|----------|---------------|
-| **Timeline** | Parallel/serial execution, pipeline stages | Horizontal colored bars |
-| **Grid/Memory** | Memory allocation, caching | CSS grid of colored cells |
-| **Flow animation** | Request lifecycle, data pipelines | Components + arrows |
-| **Tree** | Caches, routing, decision trees | Nested divs or SVG |
-| **Bar chart** | Probability distributions, comparisons | Animated CSS bars |
-| **Step-through** | Algorithms, state machines | "Next Step" button |
-| **Simulation** | Queues, schedulers, batching | Auto-running with stats |
-| **Calculator** | Memory budgets, performance | Sliders + computed output |
-| **Side-by-side** | Before/after, with/without optimization | Two panels animating |
-| **Tokenizer** | Text processing | Text input → colored output |
+| **Architecture diagram** | System overview, component relationships, process boundaries | Inline SVG with labeled `<rect>` nodes + `<path>` connections |
+| **Sequence diagram** | Request lifecycle, protocol exchanges, who-calls-whom over time | Inline SVG: vertical lanes per actor, horizontal arrows with labels |
+| **State diagram** | FSMs, lifecycle transitions, request status | Inline SVG: `<circle>` states + directed edges; click to walk the machine |
+| **Timeline** | Parallel/serial execution, pipeline stages | Horizontal SVG or CSS bars with time axis |
+| **Grid/Memory** | Memory allocation, paging, caching | CSS grid of colored cells (or SVG if spatial relationships matter) |
+| **Flow animation** | Request lifecycle, data pipelines | SVG nodes + arrows; highlight nodes sequentially on play |
+| **Tree** | Caches, routing, decision trees, radix structures | SVG preferred for geometric layout; nested divs acceptable for simple trees |
+| **Bar chart** | Probability distributions, comparisons | Animated CSS bars or inline SVG `<rect>` |
+| **Step-through** | Algorithms, state machines | "Next Step" button advancing a pointer through an SVG diagram |
+| **Simulation** | Queues, schedulers, batching | Auto-running SVG scene with live stats |
+| **Calculator** | Memory budgets, performance | Sliders + computed output fields |
+| **Side-by-side** | Before/after, with/without optimization | Two SVG panels animating simultaneously |
+| **Tokenizer** | Text processing | Text input → colored spans output |
+
+**Default to SVG** for rows marked "inline SVG" unless the concept is genuinely textual (Tokenizer) or tabular (Calculator). Reach for `<div>` only when SVG would be overkill.
 
 ### Step 4.3: Polish
 
@@ -474,7 +480,7 @@ function rand() {
 - Verify mobile layout works (sidebar collapses, demos resize)
 - Add `<meta>` tags for social sharing (title, description)
 
-**Output**: Write to `$OUTPUT` (default: `tutorial.html`)
+**Output**: Write to `$OUTPUT` (default: `<project_name>_tutorial.html` — see Parse Arguments for derivation rules)
 
 ---
 
