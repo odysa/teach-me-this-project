@@ -55,6 +55,7 @@ Non-obvious failure modes from past runs. Every executor must read this list and
 - **`Math.random()` in demos.** Two users comparing notes must see the same numbers. Every demo uses the seeded `rand()` helper from Step 4.2; resets re-seed from a fixed constant.
 - **Writer drift into prose during the raw pass.** Step 2.2 is bullets only. Prose at the raw stage forces a fact/prose entangled review, which defeats the two-pass design. Step 2.3 reviewers must kick prose back to bullet form.
 - **`<foreignObject>`, Mermaid, base64 PNG diagrams.** All break design-token inheritance. Diagrams must be authored as pure SVG with classes from the scaffold.
+- **Dark code blocks on a light-brand page.** A common default is "code is always dark, regardless of theme" — wrong for Claude and other light-parchment brands. Code blocks must use the brand's `--code-bg` token. On Claude that's `#f0eee6` (warm cream), not `#141413`. Syntax-highlight colors must be contrast-tested against the actual code surface, not copied from a dark-mode preset.
 
 When a new bug is found during a run, add it here — the skill has a changelog.
 
@@ -647,9 +648,37 @@ Write a **single self-contained HTML file** with zero external dependencies. Mus
 ```
 
 - Left border accent (3px solid, using the design system's brand/accent color)
-- Header bar with `SOURCE CODE` tag + file path, on dark surface
+- Header bar with `SOURCE CODE` tag + file path, sitting on the same code surface — inherits the `--code-bg` token, not a hardcoded dark fill
 - Inline annotations (`# ←`) in dimmer italic font, using the accent color
-- Code blocks always use a dark surface background regardless of page theme
+- **Code block surface follows the design system.** Resolve `--code-bg` from the active DESIGN.md. On light/parchment brands (Claude, editorial) `--code-bg` is a warm cream surface, not dark. On dark brands it's a deeper dark. Never hardcode `#141413` or any other literal — always go through the token. The same applies to `--code-header-bg`, `--code-text`, and every syntax-highlight class color.
+
+**Claude built-in code-block palette (light)** — use these exact values when `--design claude` or no flag is specified. Designed for the warm parchment canvas; every color is contrast-tested against the cream code surface.
+
+```css
+/* Surfaces */
+--code-bg: #f0eee6;          /* Border Cream — warm cream code surface, distinct from chapter bg */
+--code-header-bg: #e8e6dc;   /* Warm Sand — slightly darker for the source-header bar */
+--code-text: #3d3d3a;        /* Dark Warm — primary code text */
+--code-border: #d1cfc5;      /* Ring Warm — soft border for code blocks */
+
+/* Inline code (`foo` inside paragraphs) */
+--code-inline-bg: #faf9f5;   /* Ivory — lightest surface for inline pill */
+--code-inline-text: #c96442; /* Terracotta — accented for quick identification */
+
+/* Syntax highlighting — each tuned for contrast against #f0eee6 */
+.kw  { color: #a84c2d; font-weight: 500; }  /* keywords: deeper terracotta */
+.fn  { color: #6b4a80; }                    /* functions: muted purple */
+.cls { color: #6b4a80; font-weight: 500; }  /* class names: muted purple, heavier */
+.st  { color: #4a6b3e; }                    /* strings: darker sage green */
+.num { color: #8b5e2f; }                    /* numbers: warm tan */
+.cm  { color: #87867f; font-style: italic; }/* comments: stone gray */
+.an  { color: #b5562f; font-style: italic; }/* annotations (# ←): deep coral italic */
+.op  { color: #5e5d59; }                    /* operators: olive gray */
+.dec { color: #a84c2d; }                    /* decorators: deeper terracotta */
+.bool,.null,.self { color: #6b4a80; font-style: italic; }
+```
+
+Do not swap in the dark-background syntax colors (`#d97757` coral keywords, `#c9a0dc` lavender functions, `#a8c4a0` sage strings) — those were tuned for a black code surface and wash out against parchment. The rule of thumb: on light `--code-bg`, every syntax color needs ≥4.5:1 contrast against the cream; the tokens above already pass.
 
 **Callout boxes**: use the design system's accent for info, success color for success, accent for warning
 
@@ -845,6 +874,7 @@ Dispatch **1 subagent** (type: `general-purpose`) to run mechanical, invariant-s
 
 **Contrast spot check**
 - For every distinct (text-color, background-color) pair used in `<text>` elements, compute WCAG contrast ratio. Must be ≥ 4.5:1. Flag violations.
+- For every syntax-highlight class (`.kw`, `.fn`, `.st`, `.cm`, `.an`, `.num`, `.op`, `.cls`, `.dec`) rendered on `--code-bg`: compute contrast ratio. Must be ≥ 4.5:1. This catches the classic regression of pasting dark-mode syntax colors onto a light code surface.
 
 **Determinism audit**
 - `grep -n "Math.random" $OUTPUT` → must return 0 hits outside `.source-code` blocks.
