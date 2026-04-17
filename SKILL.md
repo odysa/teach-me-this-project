@@ -29,6 +29,35 @@ If the project is a GitHub URL and not cloned locally, clone it to `/tmp/<repo-n
 
 ---
 
+## Operating Principles
+
+These principles govern how the skill itself is authored and how an executor should interpret it. Read them before the step-by-step.
+
+1. **Encode invariants, not procedures.** Say what must be true of the output, not what steps to follow. Invariants are checkable; procedures force judgment calls.
+   - ❌ "Include a `prefers-color-scheme: dark` override."
+   - ✅ "No color outside the active design system's palette may appear in any emitted CSS, `<style>` block, or SVG attribute."
+
+2. **Gate generic patterns on brand capability.** Default templates assume features not every brand has. Before emitting a pattern (dark mode, gradient, neumorphic shadow, glass blur), verify the design system supports it. If it doesn't: omit the pattern entirely. Never invent tokens.
+
+3. **Prefer one correct reference over three paragraphs of prose.** Executors pattern-match. Give them the exact pattern you want reproduced.
+
+4. **Every bug found once goes in Known Traps.** Otherwise every run repeats it. Treat this skill like code — it has a changelog.
+
+## Known Traps
+
+Non-obvious failure modes from past runs. Every executor must read this list and avoid each pitfall — don't rediscover these on your own run.
+
+- **SVG presentation attribute override.** CSS class rules (`svg.diagram .node { fill: ... }`) **override** inline `fill="..."` on the element. A `<rect class="node" fill="#fff">` will render with the class's fill, not `#fff`. Mitigation: author SVG CSS with `:where(.class)` (zero specificity) so inline attributes win when explicitly set. The scaffold in Step 4.2 uses `:where()` throughout for this reason.
+- **`<text>` inside an accent `<rect>` inherits light text on a dark background.** When a node is filled with `var(--accent)`, its child `<text>` must be switched to an inverse color (`var(--bg-secondary)` or `#faf9f5`) or it becomes unreadable dark-on-dark. Solution: always set the text color explicitly on accent nodes, or wrap the accent node + label in a group with a class that cascades the right text color.
+- **Mixing diagram container backgrounds with card backgrounds.** A figure inside a chapter should share the chapter's surface — never a dark container inside a light chapter (or vice versa). If a chapter sits on `var(--bg-secondary)`, every SVG `<rect class="lane">` inside it should also use `var(--bg-secondary)`, not the raw page `--bg`.
+- **Generic dark-mode media query on light-only brands.** Claude, and many editorial/paper brands, define only a light palette. Emitting `@media (prefers-color-scheme: dark) { :root { --bg: #141413; ... } }` forces the executor to invent dark tokens that aren't in DESIGN.md — the page then swaps to an un-branded palette whenever the user's OS is in dark mode. Only emit the override when DESIGN.md has an explicit dark variant.
+- **Line numbers drift between releases.** `file.py:L42-L78` today ≠ `file.py:L42-L78` tomorrow. Step 1.5 must re-verify every citation; never trust a line range you haven't grep'd this session.
+- **`Math.random()` in demos.** Two users comparing notes must see the same numbers. Every demo uses the seeded `rand()` helper from Step 4.2; resets re-seed from a fixed constant.
+- **Writer drift into prose during the raw pass.** Step 2.2 is bullets only. Prose at the raw stage forces a fact/prose entangled review, which defeats the two-pass design. Step 2.3 reviewers must kick prose back to bullet form.
+- **`<foreignObject>`, Mermaid, base64 PNG diagrams.** All break design-token inheritance. Diagrams must be authored as pure SVG with classes from the scaffold.
+
+When a new bug is found during a run, add it here — the skill has a changelog.
+
 ## Agent Dispatch Table
 
 This skill is orchestration-heavy. The orchestrator (main loop) holds the plan; subagents do the bounded, parallelizable work. Every step below that says "dispatch N subagents" **must** use the Agent tool — never inline the work into the orchestrator's context.
@@ -40,13 +69,17 @@ This skill is orchestration-heavy. The orchestrator (main loop) holds the plan; 
 | 1.3 Deep Dives | Per-concept research, source extraction | **3 parallel subagents** (`Explore`), split by layer (foundations / orchestration / execution) |
 | 1.4 Fill Gaps | Identify missing concepts | Orchestrator (synthesis) |
 | 1.5 Citation Gate | Verify every `file:LN-LN` tag | **3 parallel subagents** (`general-purpose`), same layer split |
-| 2.2 Chapter Writing | Write prose to `/tmp/.../chNN.md` | **3 parallel subagents** (`general-purpose`), same layer split |
-| 2.3 Per-Chapter Review | Review + fix each chapter the moment it's written | **N parallel subagents** (`general-purpose`), **one per chapter file**; fires as each Step 2.2 writer completes |
-| 3 Round 1 Cross-Chapter Consistency | Terminology, redundancy, cross-refs across chapters | **2 parallel subagents** (`general-purpose`), split by chapter halves |
+| 1.6 Consistency Bible | Synthesize terminology / notation / abbreviations / cross-ref map | 1 subagent (`general-purpose`) |
+| 2.2 Raw Draft | Write structured bullets/facts/snippets per chapter | **3 parallel subagents** (`general-purpose`), same layer split |
+| 2.3 Raw Review | Fact/citation/consistency review on bullets (cheap) | **N parallel subagents** (`general-purpose`), one per raw chapter file; fires as each writer completes |
+| 2.4 Prose Pass | Turn approved raw content into polished paragraphs | **3 parallel subagents** (`general-purpose`), same layer split |
+| 2.5 Prose Polish | Flow, tone, callout placement — facts already vetted | **N parallel subagents** (`general-purpose`), one per prose chapter file |
+| 3 Round 1 Cross-Chapter Consistency | Terminology drift, redundancy, cross-refs across chapters | **2 parallel subagents** (`general-purpose`), split by chapter halves |
 | 3 Round 2 Pedagogy | Role-play target audience | 1 subagent (`general-purpose`), fresh context |
 | 4.0 Stage 1 Shell | Write CSS/JS skeleton | 1 subagent (`frontend-developer`) |
 | 4.0 Stage 2 Assembly | Stitch chapters into shell | Orchestrator (sequential Edit inserts) |
 | 4.2 Interactive Demos | Per-chapter demo HTML + JS | **3 parallel subagents** (`general-purpose`), same layer split |
+| 4.3 Visual Consistency Gate | Grep-level invariant checks on assembled HTML | 1 subagent (`general-purpose`) |
 
 **Why this matters**: the orchestrator's context is the scarce resource. Anything the orchestrator reads directly — source files, full drafts, demo JS — crowds out the plan. Subagents return only short summaries (file lists, counts, diffs). The orchestrator stays slim and survives the whole run.
 
@@ -191,7 +224,97 @@ SHIFT   sglang/srt/layers/attention.py:L55-L88       → now at L61-L94
 MISSING sglang/srt/legacy/old_router.py:L12-L30      (file deleted; use managers/router.py:L40-L58)
 ```
 
-Each agent also **applies fixes in place** to the research notes for its layer: update line ranges, relocate snippets that moved, drop or replace references to deleted code. The orchestrator reads only the summary counts (OK / SHIFT / MISSING) from each agent's final report — not the individual snippet contents. Only after all three reports return clean does Phase 2 begin.
+Each agent also **applies fixes in place** to the research notes for its layer: update line ranges, relocate snippets that moved, drop or replace references to deleted code. The orchestrator reads only the summary counts (OK / SHIFT / MISSING) from each agent's final report — not the individual snippet contents. Only after all three reports return clean does Step 1.6 begin.
+
+### Step 1.6: Build the Consistency Bible (run BEFORE drafting)
+
+Three parallel writers will produce chapters that drift without a shared reference. One will call it a "request", another a "query", another an "input". One will draw the KV cache as a grid; another as a list; another as a tree. Post-hoc consistency review is expensive — every fix touches multiple files. **Fix consistency upfront with a shared artifact**.
+
+Dispatch **1 subagent** (type: `general-purpose`) to synthesize all Phase 1 outputs into a single `/tmp/tutorial-<timestamp>/consistency.md`. The agent reads: the architecture survey (Step 1.1), the dependency graph (Step 1.2), the deep-dive traces per layer (Step 1.3), the gap list (Step 1.4), the audited citations (Step 1.5). It produces:
+
+```markdown
+# Consistency Bible
+
+## Canonical Terminology
+For every important concept, the ONE noun/verb to use. Writers and reviewers
+must enforce these. List the aliases that are forbidden.
+
+| Canonical | Aliases to avoid | Defined in |
+|---|---|---|
+| request | query, input, prompt (when referring to the flow unit) | Ch 1 |
+| KV cache | key-value cache, kv pool, attention cache | Ch 3 |
+| prefill | prompt-phase, input-phase, context-phase | Ch 5 |
+| decode | generation-phase, output-phase, token-phase | Ch 5 |
+| scheduler | dispatcher, orchestrator, manager (ambiguous) | Ch 2 |
+| ... | ... | ... |
+
+## Abbreviations (expand on first use in every chapter)
+| Abbrev | Full form |
+|---|---|
+| LLM | large language model |
+| KV  | key-value (attention) |
+| FSM | finite state machine |
+| ... | ... |
+
+## Cross-Reference Map
+Which chapter owns each concept's introduction. When another chapter mentions
+the concept, it must either define it briefly in place OR link to this chapter.
+
+| Concept | Defined in |
+|---|---|
+| Radix tree | Ch 4 |
+| Continuous batching | Ch 6 |
+| Paged memory | Ch 3 |
+| ... | ... |
+
+## Pseudocode Conventions
+- Variable names: use the project's actual names where possible (req, batch, seq_len).
+  Never invent cute variables (foo, my_thing).
+- Function signatures: match the real codebase's naming (snake_case for Python,
+  camelCase for TS, etc.).
+- Comment marker for annotations in snippets: ALWAYS `# ←` (never `//`, `→`, or plain `#`).
+
+## Notation Conventions
+Consistent visual metaphors across diagrams.
+- KV cache: rendered as a grid of cells (rows = requests, cols = token positions).
+- Request lifecycle: rendered as a horizontal flow (arrows left→right).
+- Scheduling decisions: rendered as a timeline with bars per request.
+- Tree structures: rendered as nested SVG nodes, roots at the top.
+
+## Reusable Analogies
+If an analogy appears in one chapter, no other chapter introduces a competing
+one for the same concept.
+
+| Concept | Analogy (pick ONE) |
+|---|---|
+| Scheduler | restaurant host seating parties at tables (Ch 2) |
+| KV cache | sticky notes with partial work preserved (Ch 3) |
+| Radix tree | filing cabinet with shared folder prefixes (Ch 4) |
+| ... | ... |
+
+## Chapter Length Targets
+Approximate word counts so no chapter balloons or starves. Deviate only with justification.
+
+| Chapter | Target words |
+|---|---|
+| Ch 1 (intro) | 800-1200 |
+| Regular chapter | 1500-2500 |
+| Complex chapter (e.g. attention) | 2500-3500 |
+
+## Style Rules
+- Headings: sentence case, not Title Case.
+- Numerals: "two" for <10 in prose, digits for technical/numeric contexts.
+- Code voice: present tense ("the scheduler picks the next batch"), not past or future.
+- Callouts: info = neutral explainer, success = key takeaway, warning = common pitfall.
+  Never use info for warnings or vice versa.
+```
+
+The agent produces this file and reports only its path back. The orchestrator does not read the contents — every downstream writer/reviewer does.
+
+**Enforcement**:
+- Step 2.2 writers receive `consistency.md` and obey it.
+- Step 2.3 per-chapter reviewers add a `CONSISTENCY` line to their report — did the chapter violate any bible rule? Reviewers fix violations in place.
+- Phase 3 Round 1 cross-chapter reviewers use the bible as the source of truth (the bible is the target; drift is a violation of the bible, not a debate between chapters).
 
 ---
 
@@ -277,61 +400,148 @@ Description of the interactive visualization.
 One callout box summarizing the essential insight.
 ```
 
-### Step 2.2: Write Chapters in Parallel (to disk, one file per chapter)
+### Two-Pass Chapter Pipeline (overview)
 
-Dispatch **3 parallel subagents** aligned with the layer split from Step 1.3 (Foundations / Orchestration / Execution). Each agent writes its chapters **directly to disk** — never back into the conversation — as one file per chapter:
+Drafting happens in **two passes** with a review between each:
+
+```
+Pass 1: RAW   → 2.2 Raw Draft (bullets/facts/snippets)     →  2.3 Raw Review (facts, citations, bible)
+Pass 2: PROSE → 2.4 Prose Pass (approved raw → paragraphs) →  2.5 Prose Polish (flow, tone)
+```
+
+Why split it: fact-checking prose is expensive — reviewers must distinguish "wrong fact" from "awkward sentence." Fact-checking bullets is trivial. By the time prose exists, every claim, citation, and consistency rule has already been vetted; the prose pass is pure writing, and its review is cosmetic.
+
+All four steps reuse the Foundations / Orchestration / Execution layer split for writers and the one-reviewer-per-chapter pattern for reviews. Writers always write to disk; reviewers always edit in place.
+
+### Step 2.2: Raw Draft (parallel by layer)
+
+Dispatch **3 parallel subagents** (same layer split as Step 1.3). Each writes **raw content — not prose** for its chapters, one file per chapter:
+
+```
+/tmp/tutorial-<timestamp>/raw/ch01.raw.md
+/tmp/tutorial-<timestamp>/raw/ch02.raw.md
+...
+/tmp/tutorial-<timestamp>/raw/chNN.raw.md
+```
+
+Raw content is **structured bullets, facts, and fragments** — no paragraphs, no flow. Every required template section appears as a heading with bullets underneath:
+
+```markdown
+## N. <Chapter Title>
+Subtitle: <one-line hook>
+
+### The Problem
+- <pain point 1, one bullet>
+- <pain point 2>
+- Without this: <concrete consequence>
+
+### The Idea
+- Core mechanism: <one sentence>
+- Key insight: <one sentence>
+- Analogy (from consistency.md): <reference>
+
+### How It Works
+- Step 1: <fact> (source: scheduler.py:L42)
+- Step 2: <fact> (source: scheduler.py:L58)
+- Key data structure: <Class name> — fields: {a, b, c}
+- Complexity: O(...)
+
+### Source Code Snippets
+- SNIPPET: scheduler.py:L42-L78  (primary loop, verified in Step 1.5)
+- SNIPPET: schedule_batch.py:L12-L40  (data structure)
+
+### Why This, Not That?
+- Chosen: <approach> because <reason>
+- Alternative: <approach> — pros/cons
+- Verdict: <one line>
+
+### Interactive Demo
+- Type: <from common types table>
+- User input: <what triggers it>
+- Animation: <what changes over time>
+- Stats shown: <counter 1, counter 2>
+- Insight delivered: <one line>
+
+### Papers & References
+- "<Paper title>" — <authors, year>. <arxiv>. Implemented in: <files>
+
+### Key Takeaway
+- <one sentence>
+```
+
+Each writer receives: the concept dependency graph, the verified citation list (Step 1.5), the Consistency Bible (Step 1.6), the deep-dive traces for their concepts, the target AUDIENCE level. Writers **do not write prose** and must not — a writer that drifts into paragraphs fails the review in Step 2.3.
+
+Each writer reports back the list of files written and any citations that turned out to be unusable.
+
+### Step 2.3: Raw Review (parallel, one per chapter — fires as raw files land)
+
+The moment a Step 2.2 writer reports a file complete, dispatch **1 subagent per raw chapter file**. Don't wait for all three writers to finish. Reviewing bullets is fast and cheap; do it in a tight feedback loop.
+
+Each reviewer receives:
+- Path to its single `.raw.md` file
+- The Consistency Bible (Step 1.6)
+- The verified citation list (Step 1.5)
+- The deep-dive trace for this chapter's concept
+- The concept dependency graph (for forward-ref checks)
+
+Each reviewer checks:
+
+1. **Structure**: every required template heading is present, each with at least one bullet.
+2. **Factual accuracy**: every technical claim matches the deep-dive trace or the actual code. Class names, function names, algorithms, complexities all correct.
+3. **Citation fidelity**: every `file.py:L42-L78` tag matches the verified list. Every SNIPPET's line range still exists. No snippets invented.
+4. **Consistency bible**: every canonical term is used; no forbidden aliases. Abbreviations expanded on first mention. Forward-refs obey the cross-reference map. Pseudocode conventions followed.
+5. **Demo concreteness**: the demo spec names a type, an input, an animation, and specific stats — not "a visualization."
+6. **No prose**: raw files are bullets only. If a writer started drafting paragraphs, kick the content back to bullet form.
+
+Reviewer **applies fixes in place** and returns a ≤120-word structured report:
+```
+CHAPTER: ch05.raw.md
+STRUCTURE: ok
+FACTS: fixed 1 (said O(n), actual O(n log n))
+CITATIONS: fixed 2 (L142→L148 drift, L201→L208 drift)
+BIBLE: fixed 3 ("query"→"request" ×2, expanded KV on first use)
+DEMO: ok
+PROSE-LEAK: fixed (converted 2 paragraphs back to bullets)
+UNFIXABLE: 0
+```
+
+If a reviewer hits `UNFIXABLE`, the orchestrator re-dispatches that chapter's original writer with the failure report. Only when every chapter returns a clean raw review does Step 2.4 begin.
+
+### Step 2.4: Prose Pass (parallel by layer)
+
+Dispatch **3 parallel subagents** (same layer split) to turn approved raw content into polished chapter prose, one file per chapter:
 
 ```
 /tmp/tutorial-<timestamp>/ch01.md
 /tmp/tutorial-<timestamp>/ch02.md
 ...
 /tmp/tutorial-<timestamp>/chNN.md
-/tmp/tutorial-<timestamp>/intro.md
-/tmp/tutorial-<timestamp>/conclusion.md
 ```
 
-Why per-chapter files: the orchestrator never accumulates the full draft in its context window, the assembler in Phase 4 can stream chapters in one at a time, and a failed chapter can be re-run in isolation without re-drafting everything.
+Each agent reads its layer's reviewed `.raw.md` files and produces finished prose. The job is **writing, not research**: every fact, citation, and term is already locked. The agent must not introduce new claims, new source snippets, or new terminology — doing so means a factual re-review is required and that's expensive. If a prose agent discovers a gap, it logs it (`GAP: ch07 — need one more example of X`) and keeps writing; the orchestrator decides whether to re-run the raw pass for that chapter or proceed.
 
-Each agent receives: the full concept dependency graph, the verified citation list from Step 1.5, the deep-dive traces for their concepts, the chapter template, and the target AUDIENCE level. Each agent reports back only: (1) the list of files written, (2) any citations that turned out to be unusable despite passing Step 1.5.
+Each agent receives: its reviewed raw files, the Consistency Bible, the chapter template, the target AUDIENCE level, the chapter length targets from the bible. Agents report back the list of files written and any gap logs.
 
-### Step 2.3: Per-Chapter Review (immediate, one reviewer per chapter)
+### Step 2.5: Prose Polish (parallel, one per chapter — fires as prose files land)
 
-As soon as a chapter lands on disk, it gets reviewed — don't wait for the whole draft. Per-chapter reviewers are cheaper than bulk reviewers (smaller context, tighter scope) and catch issues while the topic is still fresh and the fix is still local to one file.
+Dispatch **1 subagent per prose chapter file** as each is written. This review is intentionally **lightweight** — facts were already vetted in Step 2.3.
 
-**Trigger**: the moment a Step 2.2 writer agent reports completion, the orchestrator immediately fans out review agents — one per chapter file that agent produced. Do not wait for all three writers to finish. Each writer's completion is its own dispatch opportunity.
+Each reviewer checks only:
+- **Flow and tone**: does it read well at the AUDIENCE level? Awkward sentences, dense paragraphs that should be split, abrupt transitions.
+- **Length**: within the bible's chapter target, ±20%.
+- **Prose faithfulness**: did the prose accidentally contradict the approved raw content? (If yes, prose wins ONLY for wording; any factual contradiction must be fixed to match the raw.)
+- **Callout placement**: info vs success vs warning used per bible rules.
 
-Dispatch **N parallel subagents** (type: `general-purpose`, one per chapter file), each scoped to exactly one chapter:
-
-Each reviewer receives:
-- Path to its single chapter file (e.g., `/tmp/tutorial-*/ch05.md`)
-- The concept dependency graph (to check forward references)
-- The verified citation list from Step 1.5 (ground truth for every source snippet in the chapter)
-- The chapter template (structural checklist)
-- The deep-dive trace for this chapter's concept (factual ground truth)
-- The target AUDIENCE level
-
-Each reviewer checks (in order):
-
-1. **Structure**: every required section from the chapter template is present (The Problem, The Idea, How It Works, Source Code, Why This Not That, Key Takeaway, Interactive Demo idea, Papers & References).
-2. **Citation fidelity**: every `file.py:L42-L78` tag in source-code blocks matches the verified citation list from Step 1.5. Every snippet body is verbatim from the real file (re-read the file; diff against the snippet). Annotations are accurate.
-3. **Factual accuracy**: every technical claim is supported by the deep-dive trace or the actual code. Class/function names are real. Data-structure descriptions match. Algorithm complexities are correct.
-4. **Forward-reference hygiene**: if the chapter uses a term that's defined in a later chapter, the term must be briefly defined in place or explicitly marked "covered in Ch N."
-5. **Demo is concrete**: the interactive demo description specifies inputs, outputs, animations, and stats — not just "a visualization of X."
-
-Each reviewer **applies fixes in place** to the chapter file and returns a ≤150-word structured report:
+Reviewer **applies fixes in place** and returns a ≤80-word report:
 ```
-CHAPTER: 05_radix_cache.md
-STRUCTURE: ok
-CITATIONS: fixed 2 (L142→L148, L201→L208 drift)
-FACTS: fixed 1 (said O(n), actual O(n log n))
-FORWARD-REFS: added 1 inline definition ("eviction", forward to Ch 6)
-DEMO: ok
-UNFIXABLE: 0
+CHAPTER: ch05.md
+FLOW: smoothed 3 transitions
+LENGTH: 2100 words (target 1500-2500) ok
+FAITHFULNESS: ok
+CALLOUTS: ok
 ```
 
-If a reviewer cannot fix something (e.g., a snippet the chapter depends on was actually deleted from the codebase), it flags `UNFIXABLE: <count>` with a brief description. The orchestrator collects these and, if any chapter has unfixable issues, re-dispatches that chapter's original writer with the failure report attached.
-
-Only after every chapter has a clean review report does Phase 3 begin.
+Only after every chapter has a clean prose-polish report does Phase 3 begin.
 
 ---
 
@@ -411,8 +621,9 @@ Write a **single self-contained HTML file** with zero external dependencies. Mus
 - Smooth chapter transitions (fade + slide animation)
 - Code blocks with keyword highlighting (inline, no external deps)
 - Chapter-to-chapter navigation (prev/next buttons)
-- **Theme follows the design system, not the OS.** Use only the palette the design system defines. Do NOT add a `prefers-color-scheme: dark` override with invented dark colors — if the brand is fundamentally a light (or dark) design, honor that identity. Only emit a dark-mode block when the design system *explicitly* specifies a dark palette alongside the light one.
-- All styling via CSS custom properties so the design system is a single block of overrides
+- **Palette closure**: no color outside the active DESIGN.md's palette may appear in any emitted CSS rule, inline `style=`, or SVG attribute. Grep-checkable: `fill="#`, `stroke="#`, `color:#`, `background:#` with a hex value must match a DESIGN.md token.
+- **Dark-mode gating**: emit a `@media (prefers-color-scheme: dark)` block ONLY if DESIGN.md defines a dark palette. If it doesn't, lock the page with `color-scheme: light` (or `dark`, whichever the brand is) in `:root`. Never invent dark tokens to fill a missing palette.
+- All styling via CSS custom properties so the design system is a single block of overrides.
 - **Include the `svg.diagram` CSS scaffold** from Step 4.2's "Diagram Theme Consistency" section verbatim — every inline SVG diagram across all chapters inherits from it, so the shell MUST ship it once. Without this block, per-chapter diagrams will hard-code colors and drift from the theme.
 
 **Apply the resolved design system** from the Parse Arguments step. Use the design tokens for:
@@ -540,24 +751,27 @@ function rand() {
 Diagrams must feel like part of the page, not screenshots pasted in. Use the same tokens the rest of the UI uses. The shell's `<style>` block must include this reusable scaffold once; every diagram then inherits it by putting its SVG inside `<svg class="diagram">`.
 
 ```css
-/* Add to the shell's <style> block — every diagram inherits these */
+/* Add to the shell's <style> block — every diagram inherits these.
+   :where() selectors have zero specificity, so inline fill/stroke attributes
+   on any element still override these defaults (critical — see Known Traps). */
 svg.diagram { font-family: inherit; display: block; max-width: 100%; height: auto; overflow: visible; }
-svg.diagram text        { fill: var(--text-bright); font-size: 13px; font-weight: 500; }
-svg.diagram .label-sub  { fill: var(--text-secondary); font-size: 11px; font-weight: 400; }
-svg.diagram .node       { fill: var(--bg-tertiary); stroke: var(--border-strong); stroke-width: 1.5; rx: 8; }
-svg.diagram .node-accent{ fill: var(--accent); stroke: var(--accent); }
-svg.diagram .node-accent text, svg.diagram .node-accent + text { fill: var(--bg-secondary); }
-svg.diagram .edge       { stroke: var(--text-secondary); stroke-width: 1.5; fill: none; }
-svg.diagram .edge-active{ stroke: var(--accent); stroke-width: 2.5; }
-svg.diagram .arrowhead  { fill: var(--text-secondary); }
-svg.diagram .arrowhead-active { fill: var(--accent); }
-svg.diagram .lane       { fill: var(--bg-secondary); stroke: var(--border); stroke-width: 1; }
-svg.diagram .info    { fill: var(--blue);   stroke: var(--blue); }
-svg.diagram .success { fill: var(--green);  stroke: var(--green); }
-svg.diagram .warning { fill: var(--orange); stroke: var(--orange); }
-svg.diagram .error   { fill: var(--red);    stroke: var(--red); }
-svg.diagram .muted   { opacity: 0.35; }
-svg.diagram .pulse   { animation: diagram-pulse 1.2s ease-in-out infinite; }
+svg.diagram :where(text)        { fill: var(--text-bright); font-size: 13px; font-weight: 500; }
+svg.diagram :where(.label-sub)  { fill: var(--text-secondary); font-size: 11px; font-weight: 400; }
+svg.diagram :where(.node)       { fill: var(--bg-tertiary); stroke: var(--border-strong); stroke-width: 1.5; rx: 8; }
+svg.diagram :where(.node-accent){ fill: var(--accent); stroke: var(--accent); }
+svg.diagram :where(.node-accent) ~ text,
+svg.diagram :where(.on-accent)  { fill: var(--bg-secondary); }   /* readable text on accent fill */
+svg.diagram :where(.edge)       { stroke: var(--text-secondary); stroke-width: 1.5; fill: none; }
+svg.diagram :where(.edge-active){ stroke: var(--accent); stroke-width: 2.5; }
+svg.diagram :where(.arrowhead)  { fill: var(--text-secondary); }
+svg.diagram :where(.arrowhead-active) { fill: var(--accent); }
+svg.diagram :where(.lane)       { fill: var(--bg-secondary); stroke: var(--border); stroke-width: 1; }
+svg.diagram :where(.info)    { fill: var(--blue);   stroke: var(--blue); }
+svg.diagram :where(.success) { fill: var(--green);  stroke: var(--green); }
+svg.diagram :where(.warning) { fill: var(--orange); stroke: var(--orange); }
+svg.diagram :where(.error)   { fill: var(--red);    stroke: var(--red); }
+svg.diagram :where(.muted)   { opacity: 0.35; }
+svg.diagram :where(.pulse)   { animation: diagram-pulse 1.2s ease-in-out infinite; }
 @keyframes diagram-pulse { 50% { opacity: 0.5; } }
 /* Every diagram must ship this <defs> arrowhead marker reference once per SVG */
 ```
@@ -588,11 +802,11 @@ svg.diagram .pulse   { animation: diagram-pulse 1.2s ease-in-out infinite; }
   <text x="65" y="45" text-anchor="middle">Tokenizer</text>
   <path class="edge" d="M120,40 L200,40" marker-end="url(#a)"/>
   <rect class="node node-accent" x="200" y="20" width="110" height="40"/>
-  <text x="255" y="45" text-anchor="middle">Scheduler</text>
+  <text x="255" y="45" text-anchor="middle" class="on-accent">Scheduler</text>
 </svg>
 ```
 
-Every attribute references a design-system token; swap the theme and the diagram re-themes with it.
+Every attribute references a design-system token; swap the theme and the diagram re-themes with it. Note the `class="on-accent"` on the label inside the terracotta node — without it, the label inherits the default dark text color and becomes unreadable against the accent fill. **This is the single most common SVG-theming bug. Pattern-match this example.**
 
 **Common demo types**:
 
@@ -614,7 +828,43 @@ Every attribute references a design-system token; swap the theme and the diagram
 
 **Default to SVG** for rows marked "inline SVG" unless the concept is genuinely textual (Tokenizer) or tabular (Calculator). Reach for `<div>` only when SVG would be overkill.
 
-### Step 4.3: Polish
+### Step 4.3: Visual Consistency Gate
+
+Dispatch **1 subagent** (type: `general-purpose`) to run mechanical, invariant-shaped checks on the assembled HTML. These are grep-level, deterministic, and cheap — exactly the kind of check that catches regressions every run if skipped.
+
+**Palette closure**
+- Extract every hex color and `rgb()` literal appearing in the emitted HTML (excluding any verbatim source-code snippets in `.source-code` blocks).
+- Every extracted color must resolve to a DESIGN.md token (either the literal value, or a `var(--token)` reference).
+- Any color outside the palette is a violation — fix by replacing with the nearest token.
+
+**SVG invariants** — for every `<svg class="diagram">`:
+- No `<foreignObject>`, no `<image xlink:href="data:">`, no `<script>`, no external `href=`.
+- Every `<text>` inside a `.node-accent`, `.info`, `.success`, `.warning`, or `.error` filled node must carry `class="on-accent"` (or equivalent inverse-text class) — otherwise text contrast fails.
+- Every `fill="#..."` or `stroke="#..."` on a classed element must be accompanied by `style="fill:...;"` inline, OR the CSS rule must use `:where()` — bare `fill="..."` attributes will be overridden by the scaffold's class rules. (See Known Traps.)
+- At most one `.node-accent` per diagram (accent is for emphasis, not decoration).
+
+**Contrast spot check**
+- For every distinct (text-color, background-color) pair used in `<text>` elements, compute WCAG contrast ratio. Must be ≥ 4.5:1. Flag violations.
+
+**Determinism audit**
+- `grep -n "Math.random" $OUTPUT` → must return 0 hits outside `.source-code` blocks.
+
+**Dark-mode gate**
+- If DESIGN.md has no dark palette, `grep -n "prefers-color-scheme" $OUTPUT` must return 0 hits.
+- If DESIGN.md has a dark palette, every token referenced inside the dark media query must exist in the palette.
+
+Reviewer returns a ≤120-word report:
+```
+PALETTE: 0 violations
+SVG INVARIANTS: fixed 2 (added on-accent to ch03, removed <foreignObject> from ch07)
+CONTRAST: 1 failure → fixed (label on warning node)
+DETERMINISM: ok
+DARK-MODE: ok (no override emitted; Claude brand has no dark palette)
+```
+
+Fixes are applied directly to the HTML file. If a fix requires re-rendering a chapter's demo (structural change), re-dispatch that chapter's Step 4.2 agent with the failure report.
+
+### Step 4.4: Polish
 
 - Verify every chapter is reachable via sidebar navigation
 - Verify every demo has a reset button and no broken states
@@ -636,7 +886,7 @@ Every attribute references a design-system token; swap the theme and the diagram
 
 4. **Verify citations early (Step 1.5), not late.** A broken `file.py:L42-L78` reference caught in research notes costs one edit; the same error caught in Round 1 review costs a re-render of every chapter that references it.
 
-4b. **Review each chapter the moment it lands.** Step 2.3 dispatches a dedicated reviewer per chapter file as soon as its writer finishes — don't batch-review at the end. A per-chapter reviewer has narrow scope and fresh context; a bulk reviewer reading 16 chapters at once develops blind spots, misses per-chapter structural gaps, and has no budget to re-read every source file the chapter cites. Bulk review (Phase 3 Round 1) then shrinks to only what needs cross-chapter vision: terminology drift, redundancy, broken cross-refs.
+4b. **Two-pass drafting: raw content first, prose second.** Reviewing prose is expensive because reviewers must distinguish "wrong fact" from "awkward sentence". Reviewing bullets is trivial. Step 2.2 writes structured raw content (bullets/facts/snippets), Step 2.3 catches every factual and consistency issue in that cheap form, Step 2.4 turns approved raw into prose, Step 2.5 only checks flow. Per-chapter reviewers fire the moment each file lands — don't batch at the end. Bulk review (Phase 3 Round 1) then shrinks to cross-chapter concerns only: terminology drift, redundancy, broken cross-refs.
 
 5. **Split research by architectural layer, not by chapter count.** Concepts in the same layer share vocabulary; concepts across layers don't. Thirds-splitting makes agents research each other's dependencies in parallel.
 
