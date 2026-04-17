@@ -370,6 +370,7 @@ Write a **single self-contained HTML file** with zero external dependencies. Mus
 - Chapter-to-chapter navigation (prev/next buttons)
 - **Theme follows the design system, not the OS.** Use only the palette the design system defines. Do NOT add a `prefers-color-scheme: dark` override with invented dark colors — if the brand is fundamentally a light (or dark) design, honor that identity. Only emit a dark-mode block when the design system *explicitly* specifies a dark palette alongside the light one.
 - All styling via CSS custom properties so the design system is a single block of overrides
+- **Include the `svg.diagram` CSS scaffold** from Step 4.2's "Diagram Theme Consistency" section verbatim — every inline SVG diagram across all chapters inherits from it, so the shell MUST ship it once. Without this block, per-chapter diagrams will hard-code colors and drift from the theme.
 
 **Apply the resolved design system** from the Parse Arguments step. Use the design tokens for:
 - CSS custom properties (colors, surfaces, text, borders)
@@ -490,6 +491,65 @@ function rand() {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 ```
+
+**Diagram Theme Consistency — keep SVG native to the tutorial**:
+
+Diagrams must feel like part of the page, not screenshots pasted in. Use the same tokens the rest of the UI uses. The shell's `<style>` block must include this reusable scaffold once; every diagram then inherits it by putting its SVG inside `<svg class="diagram">`.
+
+```css
+/* Add to the shell's <style> block — every diagram inherits these */
+svg.diagram { font-family: inherit; display: block; max-width: 100%; height: auto; overflow: visible; }
+svg.diagram text        { fill: var(--text-bright); font-size: 13px; font-weight: 500; }
+svg.diagram .label-sub  { fill: var(--text-secondary); font-size: 11px; font-weight: 400; }
+svg.diagram .node       { fill: var(--bg-tertiary); stroke: var(--border-strong); stroke-width: 1.5; rx: 8; }
+svg.diagram .node-accent{ fill: var(--accent); stroke: var(--accent); }
+svg.diagram .node-accent text, svg.diagram .node-accent + text { fill: var(--bg-secondary); }
+svg.diagram .edge       { stroke: var(--text-secondary); stroke-width: 1.5; fill: none; }
+svg.diagram .edge-active{ stroke: var(--accent); stroke-width: 2.5; }
+svg.diagram .arrowhead  { fill: var(--text-secondary); }
+svg.diagram .arrowhead-active { fill: var(--accent); }
+svg.diagram .lane       { fill: var(--bg-secondary); stroke: var(--border); stroke-width: 1; }
+svg.diagram .info    { fill: var(--blue);   stroke: var(--blue); }
+svg.diagram .success { fill: var(--green);  stroke: var(--green); }
+svg.diagram .warning { fill: var(--orange); stroke: var(--orange); }
+svg.diagram .error   { fill: var(--red);    stroke: var(--red); }
+svg.diagram .muted   { opacity: 0.35; }
+svg.diagram .pulse   { animation: diagram-pulse 1.2s ease-in-out infinite; }
+@keyframes diagram-pulse { 50% { opacity: 0.5; } }
+/* Every diagram must ship this <defs> arrowhead marker reference once per SVG */
+```
+
+**Token mapping — non-negotiable**:
+
+| SVG attribute | Use | Never |
+|---|---|---|
+| Node fill | `var(--bg-tertiary)` or `var(--accent)` for emphasis | Hard-coded `#fff` or `#000` |
+| Node stroke | `var(--border-strong)` | Hard-coded gray |
+| Label text fill | `var(--text-bright)` (primary) or `var(--text-secondary)` (annotations) | Hard-coded black |
+| Connector stroke | `var(--text-secondary)`, promote to `var(--accent)` on active | Hard-coded gray |
+| Semantic colors | `.info .success .warning .error` classes (match the callout palette) | Inventing new greens/reds |
+| Font family | Inherit from `body` via `font-family: inherit` — never set explicitly on `<text>` | Declaring a different font |
+| Corner radius | `rx="8"` for nodes (matches button radius from the design system) | Sharp corners unless the design system uses them |
+| Stroke width | `1.5` default, `2.5` for active/emphasis | `1` (too thin on retina) or `≥3` (too heavy) |
+
+**Interactivity** mirrors the rest of the UI: add `.edge-active` / `.node-accent` by toggling classes from JS on user interaction — never by mutating inline `fill`/`stroke` attributes. Hover states should use CSS `:hover` on the SVG group, not JS listeners, whenever the interaction is purely visual.
+
+**Do not** use `<foreignObject>`, Mermaid, canvas rasters, or base64-embedded PNGs — all of these break theme inheritance. If a diagram requires text wrapping across multiple lines, use multiple `<tspan>` elements.
+
+**Example — a two-node flow, 8 lines, fully themed**:
+```html
+<svg class="diagram" viewBox="0 0 320 80">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+    <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+  <rect class="node" x="10" y="20" width="110" height="40"/>
+  <text x="65" y="45" text-anchor="middle">Tokenizer</text>
+  <path class="edge" d="M120,40 L200,40" marker-end="url(#a)"/>
+  <rect class="node node-accent" x="200" y="20" width="110" height="40"/>
+  <text x="255" y="45" text-anchor="middle">Scheduler</text>
+</svg>
+```
+
+Every attribute references a design-system token; swap the theme and the diagram re-themes with it.
 
 **Common demo types**:
 
