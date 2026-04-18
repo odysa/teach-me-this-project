@@ -56,7 +56,7 @@ Non-obvious failure modes from past runs. Every executor must read this list and
 - **Writer drift into prose during the raw pass.** Step 2.2 is bullets only. Prose at the raw stage forces a fact/prose entangled review, which defeats the two-pass design. Step 2.3 reviewers must kick prose back to bullet form.
 - **`<foreignObject>`, Mermaid, base64 PNG diagrams.** All break design-token inheritance. Diagrams must be authored as pure SVG with classes from the scaffold.
 - **Dark code blocks on a light-brand page.** A common default is "code is always dark, regardless of theme" — wrong for Claude and other light-parchment brands. Code blocks must use the brand's `--code-bg` token. On Claude that's `#f0eee6` (warm cream), not `#141413`. Syntax-highlight colors must be contrast-tested against the actual code surface, not copied from a dark-mode preset.
-- **Endless-scroll chapters.** A chapter that crosses 3,500 words, 5 h3 subsections, 3 source-code blocks, or 2 demos becomes a single unbounded scroll page and the reader bails. When writers produce bullet content exceeding the bible's caps, the fix is not "polish it down" — it's **split the chapter at a natural h3 boundary in Step 1.4**. Kick the plan back, don't hand-edit the prose thin.
+- **Page-level scroll instead of content-level scroll.** If `.content` (the chapter column) has no bounded height, the entire browser window scrolls as one long strip — the sidebar scrolls away, the active chapter heading scrolls away, and switching chapters drops you wherever you happened to stop. The fix is structural CSS, not chapter length: the chapter container takes `height: 100vh; overflow-y: auto;` so scrolling happens **inside** the content column. Sidebar stays fixed, chapter scroll resets on navigation, page never extends past the viewport.
 
 When a new bug is found during a run, add it here — the skill has a changelog.
 
@@ -256,9 +256,7 @@ Ch1 → Ch2 → Ch3 → Ch4 → {Ch5, Ch6} → Ch7 → Ch8 → ...
 
 The agent applies these rules while planning:
 - **No chapter lives below 1,000 words of material** — if the deep-dive trace can't support that, merge into a sibling.
-- **No chapter exceeds 2,500 words (beginner) / 3,000 words (intermediate) / 3,500 words (expert)** — hard cap. **The reader should never feel trapped on an endlessly scrolling page.** If the material needs more, split at a natural h3 boundary into two chapters with distinct titles. Do not extend a chapter past the cap to "keep the topic together" — splits are cheap, bored readers are not.
 - **No chapter carries more than three independent concepts** — if it does, split.
-- **No chapter renders taller than ~3× viewport height after assembly** — word count is a proxy; also flag chapters with more than 5 h3 subsections, more than 3 source-code blocks, or more than 2 interactive demos. Any of those signals an over-stuffed chapter that should be split.
 - **Every chapter's prerequisites must appear earlier in the list** — the final graph is a topological sort.
 - **Foundations come first, execution comes last** — respect the layer split even if a specific concept's researcher gave it a different priority.
 - **Audience-gated depth** — beginner audiences get shallower chapters with fewer concepts each; expert audiences tolerate denser merges.
@@ -357,21 +355,13 @@ one for the same concept.
 | ... | ... |
 
 ## Chapter Length Targets
-Bounded by hard caps — no chapter may render as an endless scroll page. If material
-exceeds the cap, Step 1.4 must split the chapter at a natural h3 boundary. Writers
-never extend past the cap to "keep the topic together."
+Approximate word counts so no chapter balloons or starves. Deviate only with justification.
 
-| Chapter | Target words | Hard cap |
-|---|---|---|
-| Ch 1 (intro) | 800-1200 | 1500 |
-| Regular chapter | 1500-2500 | 2500 (beginner) / 3000 (intermediate) / 3500 (expert) |
-| Complex chapter (e.g. attention) | 2500-3500 | 3500 |
-
-Additional structural caps (any of these triggers a split in Step 1.4):
-- More than 5 h3 subsections → split.
-- More than 3 source-code blocks → split.
-- More than 2 interactive demos → split.
-- Rendered chapter taller than ~3× viewport height → split.
+| Chapter | Target words |
+|---|---|
+| Ch 1 (intro) | 800-1200 |
+| Regular chapter | 1500-2500 |
+| Complex chapter (e.g. attention) | 2500-3500 |
 
 ## Style Rules
 - Headings: sentence case, not Title Case.
@@ -600,7 +590,7 @@ Dispatch **1 subagent per prose chapter file** as each is written. This review i
 
 Each reviewer checks only:
 - **Flow and tone**: does it read well at the AUDIENCE level? Awkward sentences, dense paragraphs that should be split, abrupt transitions.
-- **Length**: within the bible's chapter target range; **never over the hard cap**. A chapter over cap cannot be polished down — it must be kicked back to Step 1.4 for a split. Reviewer flags `OVER-CAP` and the orchestrator re-dispatches Chapter Planning with the over-long chapter identified.
+- **Length**: within the bible's chapter target, ±20%.
 - **Prose faithfulness**: did the prose accidentally contradict the approved raw content? (If yes, prose wins ONLY for wording; any factual contradiction must be fixed to match the raw.)
 - **Callout placement**: info vs success vs warning used per bible rules.
 
@@ -693,6 +683,14 @@ Write a **single self-contained HTML file** with zero external dependencies. Mus
 - Smooth chapter transitions (fade + slide animation)
 - Code blocks with keyword highlighting (inline, no external deps)
 - Chapter-to-chapter navigation (prev/next buttons)
+- **Bounded scroll inside the content column — NOT at page level.** The browser window itself must never scroll. Layout:
+  ```css
+  html, body { height: 100vh; overflow: hidden; margin: 0; }
+  .layout { display: flex; height: 100vh; }
+  .sidebar { width: var(--sidebar-width); height: 100vh; overflow-y: auto; position: fixed; }
+  .content { margin-left: var(--sidebar-width); flex: 1; height: 100vh; overflow-y: auto; }
+  ```
+  On chapter switch, the content column resets to top: `document.querySelector('.content').scrollTop = 0`. Never `window.scrollTo(0, 0)` — that's a page-level scroll that shouldn't exist here. Mobile: sidebar becomes an overlay, `.content` still scrolls internally.
 - **Palette closure**: no color outside the active DESIGN.md's palette may appear in any emitted CSS rule, inline `style=`, or SVG attribute. Grep-checkable: `fill="#`, `stroke="#`, `color:#`, `background:#` with a hex value must match a DESIGN.md token.
 - **Dark-mode gating**: emit a `@media (prefers-color-scheme: dark)` block ONLY if DESIGN.md defines a dark palette. If it doesn't, lock the page with `color-scheme: light` (or `dark`, whichever the brand is) in `:root`. Never invent dark tokens to fill a missing palette.
 - All styling via CSS custom properties so the design system is a single block of overrides.
@@ -954,14 +952,13 @@ Dispatch **1 subagent** (type: `general-purpose`) to run mechanical, invariant-s
 - If DESIGN.md has no dark palette, `grep -n "prefers-color-scheme" $OUTPUT` must return 0 hits.
 - If DESIGN.md has a dark palette, every token referenced inside the dark media query must exist in the palette.
 
-**Chapter length gate (no endless scroll)**
-For each `<section class="chapter">`: count words (strip HTML tags first), count `<h3>` elements, count `.source-code` blocks, count `.interactive` demos. Any chapter that exceeds the hard caps from the Consistency Bible fails the gate:
-- Words over the audience-level cap
-- More than 5 h3 subsections
-- More than 3 source-code blocks
-- More than 2 interactive demos
-
-Failures are **not fixable at the gate** — a fail means re-dispatching Step 1.4 Chapter Planning with the over-long chapter list so it can be split. Report as `CHAPTER-CAP: fail — Ch 7 (4100 words, 6 h3, 4 source blocks) must be split`.
+**Bounded-scroll gate (UI invariant)**
+Scroll must happen **inside** the content column, not at the page level. Checks:
+- `body { overflow: hidden }` or equivalent — the window itself never scrolls.
+- The element containing chapters (`.content` or equivalent) has `height: 100vh` and `overflow-y: auto`.
+- The sidebar is fixed (`position: fixed; height: 100vh`) — it must not scroll out of view when the content scrolls.
+- On chapter switch, the content column resets to `scrollTop = 0` in JS.
+Report as `SCROLL: ok` or `SCROLL: fail — body scrolls at page level, content column not bounded`.
 
 Reviewer returns a ≤120-word report:
 ```
