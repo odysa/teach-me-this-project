@@ -55,6 +55,7 @@ Non-obvious failure modes from past runs. Every executor must read this list and
 - **`Math.random()` in demos.** Two users comparing notes must see the same numbers. Every demo uses the seeded `rand()` helper from Step 4.2; resets re-seed from a fixed constant.
 - **Writer drift into prose during the raw pass.** Step 2.2 is bullets only. Prose at the raw stage forces a fact/prose entangled review, which defeats the two-pass design. Step 2.3 reviewers must kick prose back to bullet form.
 - **`<foreignObject>`, Mermaid, base64 PNG diagrams.** All break design-token inheritance. Diagrams must be authored as pure SVG with classes from the scaffold.
+- **Overlapping labels and boxes in SVG diagrams.** LLM-authored SVG can't measure rendered text width — agents guess from character count and routinely emit boxes that clip their own labels, or labels drawn on top of edge lines. The fix is a small set of sizing rules enforced at authoring time; see **Diagram Layout Discipline** in Step 4.2. Step 4.3 gate greps node width against the longest contained label text — boxes too narrow fail the gate.
 - **Dark code blocks on a light-brand page.** A common default is "code is always dark, regardless of theme" — wrong for Claude and other light-parchment brands. Code blocks must use the brand's `--code-bg` token. On Claude that's `#f0eee6` (warm cream), not `#141413`. Syntax-highlight colors must be contrast-tested against the actual code surface, not copied from a dark-mode preset.
 - **Page-level scroll instead of content-level scroll.** If `.content` (the chapter column) has no bounded height, the entire browser window scrolls as one long strip — the sidebar scrolls away, the active chapter heading scrolls away, and switching chapters drops you wherever you happened to stop. The fix is structural CSS, not chapter length: the chapter container takes `height: 100vh; overflow-y: auto;` so scrolling happens **inside** the content column. Sidebar stays fixed, chapter scroll resets on navigation, page never extends past the viewport.
 
@@ -1000,6 +1001,53 @@ svg.diagram :where(.pulse)   { animation: diagram-pulse 1.2s ease-in-out infinit
 | Corner radius | `rx="8"` for nodes (matches button radius from the design system) | Sharp corners unless the design system uses them |
 | Stroke width | `1.5` default, `2.5` for active/emphasis | `1` (too thin on retina) or `≥3` (too heavy) |
 
+**Diagram Layout Discipline — non-negotiable**:
+
+LLM-authored SVG has no font-metric access. Agents guess text width from character count, and the guess is almost always too narrow. Four rules kill the overlap bugs this causes:
+
+| Rule | How to apply it | Why |
+|---|---|---|
+| **Box ≥ text + padding** | `rect width ≥ (longest_label_chars × 7) + 32`, `height ≥ (line_count × 20) + 16`. Use the longest label in the box as the measuring stick — *not* the average. | Default 13px `font-size: 13px` on `<text>` renders ~6.5–7px per char in a sans-serif stack. 32px padding = 16px each side. |
+| **Wrap long labels** | Any label > 14 chars breaks into `<tspan x="..." dy="..."/>` lines of ≤ 14 chars each; `dy="18"` per new line; box height grows to `(lines × 20) + 16`. | One-line text shrunk to fit clips more often than multi-line text rendered at normal size. |
+| **Halo text that crosses an edge** | For any `<text>` placed on top of a `<path class="edge">` or between nodes, emit a matching `<rect class="text-halo">` *before* the `<text>` element in z-order, sized to `(chars × 7 + 10) × 18`, centered on the same coords. | SVG has no text-outline primitive that inherits theme tokens; a halo rect is the cheap, universal fix. |
+| **Gutter between nodes** | ≥ **24px horizontal**, ≥ **16px vertical** between any two sibling `<rect>` nodes. Add to `viewBox` so nothing touches the edge either — pad the viewBox by **24px on all sides** after computing the content bounding box. | Two nodes that visually touch read as one merged node. Labels at the edge clip. |
+
+Shell scaffold adds one more class (emit with the rest of `svg.diagram` CSS):
+```css
+svg.diagram :where(.text-halo) { fill: var(--bg); stroke: none; rx: 4; }
+```
+
+**Sizing worked example** — a node containing the label "Scheduler loop":
+- longest label chars = 14
+- width = `14 × 7 + 32 = 130` → round up to `140`
+- height = `1 × 20 + 16 = 36` → round up to `40`
+- emit `<rect class="node" x="..." y="..." width="140" height="40" rx="8"/>`, then `<text x="..." y="..." text-anchor="middle" dominant-baseline="middle">Scheduler loop</text>`.
+
+**Wrap worked example** — a node containing "Continuous batching scheduler":
+- Total 29 chars, > 14 → wrap: `"Continuous"` / `"batching scheduler"` (longest line 18 chars)
+- width = `18 × 7 + 32 = 158` → round up to `160`
+- height = `2 × 20 + 16 = 56` → round up to `60`
+- emit
+  ```html
+  <rect class="node" x="..." y="..." width="160" height="60" rx="8"/>
+  <text x="..." y="..." text-anchor="middle">
+    <tspan x="..." dy="0">Continuous</tspan>
+    <tspan x="..." dy="18">batching scheduler</tspan>
+  </text>
+  ```
+
+**Halo worked example** — an edge label "backpressure" sitting on top of a `<path class="edge">`:
+```html
+<rect class="text-halo" x="192" y="110" width="96" height="18"/>
+<text x="240" y="124" text-anchor="middle" class="label-sub">backpressure</text>
+```
+The halo sits *before* the text, so the text paints on top of it; the halo sits *after* the edge path, so it masks the line underneath the label. Order matters.
+
+**Do not**:
+- Resize text to fit an undersized box (`font-size: 9px` to squeeze "Continuous batching" into a 100px rect). The gate rejects `<text>` with `font-size` below 11px.
+- Rotate labels to fit them. A readable diagram is worth an extra 30px of width.
+- Use more than one `<tspan>` line per label without also growing the box height by the formula above.
+
 **Interactivity** mirrors the rest of the UI: add `.edge-active` / `.node-accent` by toggling classes from JS on user interaction — never by mutating inline `fill`/`stroke` attributes. Hover states should use CSS `:hover` on the SVG group, not JS listeners, whenever the interaction is purely visual.
 
 **Do not** use `<foreignObject>`, Mermaid, canvas rasters, or base64-embedded PNGs — all of these break theme inheritance. If a diagram requires text wrapping across multiple lines, use multiple `<tspan>` elements.
@@ -1180,6 +1228,22 @@ Dispatch **1 subagent** (type: `general-purpose`) to run mechanical, invariant-s
 **Dark-mode gate**
 - If DESIGN.md has no dark palette, `grep -n "prefers-color-scheme" $OUTPUT` must return 0 hits.
 - If DESIGN.md has a dark palette, every token referenced inside the dark media query must exist in the palette.
+
+**Diagram layout gate** — for every `<svg class="diagram">`:
+- For every `<rect class="node">` that contains a `<text>` label, compute
+  `expected_width = (longest_line_chars × 7) + 32`. If the node's `width`
+  attribute is less than `expected_width`, the box clips its label → fail
+  and expand the node.
+- For every `<text>` with `font-size` attribute present, assert value ≥ 11.
+  Lower values mean someone shrunk the label to fit; fix by growing the
+  box, not shrinking the text.
+- For every `<text>` element whose y-coordinate places it on or crossing
+  a `<path class="edge">`, assert a `<rect class="text-halo">` appears
+  immediately before the `<text>` in source order (same approximate
+  coords). Missing halo → fail.
+- `viewBox` padding: after computing the tightest bounding box of every
+  `<rect>` and `<text>`, assert the viewBox extends at least 24px beyond
+  on all four sides. Tight viewBoxes clip outer labels.
 
 **Chapter 1 overview gate**
 - The first `<section class="chapter">` must contain at least one
