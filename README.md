@@ -19,7 +19,9 @@ one offline HTML file
 </p>
 
 <p align="center">
-  <a href="https://odysa.github.io/project-tutorials/"><b>→ See live examples</b></a>
+  <a href="https://odysa.github.io/project-tutorials/vllm.html"><b>→ See it on vLLM</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://odysa.github.io/project-tutorials/">more examples</a>
   &nbsp;·&nbsp;
   <a href="#install">Install</a>
   &nbsp;·&nbsp;
@@ -86,7 +88,7 @@ A single `<project>_tutorial.html` file. Zero dependencies. Works offline. `curl
 | | |
 |---|---|
 | 📚 | **Chapter-by-chapter walkthrough** — each chapter assumes only what came before. |
-| 🔗 | **Real source citations** — every claim points to `file.py:L42-L78` in the actual repo. No pseudocode. No hallucinations. |
+| 🔗 | **Grep-verified citations** — every claim points to `file.py:L42-L78`. Citations are grep-checked against the source before the build finishes; a broken reference fails the pipeline. |
 | 🗺 | **Architecture-first** — Chapter 1 is always a full-system diagram. No orphan boxes. |
 | 🎬 | **Interactive demos** — animated, seeded, deterministic. Two readers see the same numbers. |
 | 🎨 | **Your brand** — Claude default, or any design system from getdesign.md. |
@@ -146,7 +148,18 @@ Settings → Pages → `main` branch, `/docs` folder. Live in a minute.
 
 ## Gallery
 
-- **[→ odysa.github.io/project-tutorials](https://odysa.github.io/project-tutorials/)** — every tutorial generated with this skill.
+Every tutorial below was generated with this skill — click into any one and inspect the citations, demos, and diagrams yourself.
+
+- **[Inside vLLM](https://odysa.github.io/project-tutorials/vllm.html)** — architecture and scheduling of the vLLM inference engine.
+- **[SGLang Internals](https://odysa.github.io/project-tutorials/sglang.html)** — runtime and execution of the SGLang serving framework.
+- **[nano-vLLM](https://odysa.github.io/project-tutorials/nano_vllm_tutorial.html)** — a minimal vLLM reimplementation, end to end.
+- **[Mini-SGLang](https://odysa.github.io/project-tutorials/mini_sglang_tutorial.html)** — a beginner's tour of a modern LLM serving engine in twelve chapters.
+- **[OpenClaw](https://odysa.github.io/project-tutorials/openclaw_tutorial.html)** — a multi-channel personal AI assistant: agentic loop, skills, sandboxed sub-agents.
+- **[Hermes Agent](https://odysa.github.io/project-tutorials/hermes_agent_tutorial.html)** — NousResearch's agent: loop, tools, memory, gateway, extensions.
+- **[Bub](https://odysa.github.io/project-tutorials/bub_tutorial.html)** — the Bub agent framework: architecture, primitives, runtime internals.
+- **[pi-mono](https://odysa.github.io/project-tutorials/pi_mono_tutorial.html)** — a minimal coding agent: provider layer, agent loop, session compaction, TUI.
+
+[**→ Full gallery**](https://odysa.github.io/project-tutorials/)
 
 *Built one you're proud of? Open a PR to add it.*
 
