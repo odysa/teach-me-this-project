@@ -255,7 +255,25 @@ Ch1 → Ch2 → Ch3 → Ch4 → {Ch5, Ch6} → Ch7 → Ch8 → ...
 ```
 
 The agent applies these rules while planning:
-- **No chapter lives below 1,000 words of material** — if the deep-dive trace can't support that, merge into a sibling.
+- **Chapter 1 is always an architecture overview — non-negotiable.** Readers
+  need a map before a tour; every later chapter zooms into one region of
+  this map. Ch 1's plan entry must specify:
+  - **Depth**: `shallow (overview)` — no exceptions.
+  - **Figure/diagram anchor**: `architecture (full-system)` — a single
+    `svg.diagram` with every major component as a named node, connected
+    by the data-flow paths the system actually uses.
+  - **Scope (in)**: the full component list (one line per component
+    stating its role), one worked end-to-end request/input example traced
+    through the diagram with numbered arrows, and a pointer table
+    mapping each diagram component to the chapter that covers it.
+  - **Scope (out)**: every mechanism. Ch 1 never deep-dives — if a
+    paragraph would belong in Ch 3 or Ch 7, it goes there.
+  - **Target length**: ≤ 1,200 words (overrides the regular-chapter range).
+  - **Invariant**: every named node in the Ch 1 diagram must either (a)
+    be the subject of a later chapter, or (b) appear in Ch 1's explicit
+    "Not covered in this tutorial" list with a one-line reason. No orphan
+    boxes.
+- **No chapter lives below 1,000 words of material** — if the deep-dive trace can't support that, merge into a sibling. (Ch 1 is exempt from the floor but still held to the ≤ 1,200 ceiling above.)
 - **No chapter carries more than three independent concepts** — if it does, split.
 - **Every chapter's prerequisites must appear earlier in the list** — the final graph is a topological sort.
 - **Foundations come first, execution comes last** — respect the layer split even if a specific concept's researcher gave it a different priority.
@@ -354,6 +372,30 @@ one for the same concept.
 | Radix tree | filing cabinet with shared folder prefixes (Ch 4) |
 | ... | ... |
 
+## Glossary (reader-facing)
+Plain-English, one-line definitions for every technical term the tutorial uses
+without first defining it in prose. These power hover-to-define tooltips in
+the rendered HTML (Step 4.2 reader components). One entry per canonical term —
+aliases are handled by the Canonical Terminology table, not duplicated here.
+
+Definitions must be:
+- **≤ 140 characters**, so the tooltip fits in one line on mobile.
+- **self-contained** — no terms that would themselves need a tooltip.
+- **concrete over formal** — "a table the model looks up previously computed
+  attention values in" beats "cache of intermediate activations".
+
+| Term | Plain-English definition |
+|---|---|
+| KV cache | Table of previously computed attention values the model reuses instead of recomputing each token. |
+| Radix tree | A tree that shares common prefixes between keys, so matching two strings that start the same way costs only the differing tail. |
+| Prefill | The phase where the model reads the user's prompt in one big batch before generating anything. |
+| Decode | The phase where the model generates one token at a time, feeding each one back in. |
+| ... | ... |
+
+Every term that appears in a chapter's prose and is not introduced in-chapter
+must exist in this table. The Step 4.3 gate greps `class="glossary"` spans
+against this list.
+
 ## Chapter Length Targets
 Approximate word counts so no chapter balloons or starves. Deviate only with justification.
 
@@ -369,6 +411,17 @@ Approximate word counts so no chapter balloons or starves. Deviate only with jus
 - Code voice: present tense ("the scheduler picks the next batch"), not past or future.
 - Callouts: info = neutral explainer, success = key takeaway, warning = common pitfall.
   Never use info for warnings or vice versa.
+- **No wall-of-text sections**: within a single `###` subsection, no more
+  than **~8 consecutive paragraphs** without *any* visual interruption — a
+  code snippet, SVG diagram, demo, callout, table, or list. This is a
+  page-level floor, not per-paragraph pacing — engineering prose explaining
+  *why* an algorithm works is welcome; an unbroken essay is not.
+  Enforced by Step 2.5 polish and Step 4.3 gate.
+- **Metaphor fit-for-purpose**: each analogy in the Reusable Analogies table
+  must map tightly to the specific concept it pairs with. Generic metaphors
+  (a recipe, a factory, a conveyor belt) applied to multiple unrelated
+  concepts are forbidden — once "factory" is used, it's used for one concept
+  only; find a different metaphor for the next one.
 ```
 
 The agent produces this file and reports only its path back. The orchestrator does not read the contents — every downstream writer/reviewer does.
@@ -447,6 +500,47 @@ Embed actual source code snippets from Phase 1.
 - Trim to 10-40 lines per snippet
 - Always include `# source:` tag with file path
 
+### Code ↔ Plain English
+For the single most important snippet in the chapter (usually the one named
+in *How It Works*), pair the real source on the left with a plain-English
+translation on the right — one English line per meaningful code line, not one
+per syntactic line. The translation explains *what the line accomplishes in
+the problem domain*, not *what the syntax does*.
+
+- ❌ "This line assigns the result of `scheduler.pop()` to `batch`." (syntax)
+- ✅ "Grabs the next group of requests ready to run together." (domain)
+
+Skip this block for chapters where the central insight is purely conceptual
+(no single snippet is load-bearing). Never include more than one Code↔English
+block per chapter — it's a spotlight, not a line-by-line annotation.
+
+Rendered as the `code-translate` reader component (Step 4.2).
+
+### Quick Check
+One optional scenario-based quiz per chapter, placed after *Key Takeaway*.
+Tests whether the reader can **apply** the chapter, not whether they memorized
+a definition. The question describes a realistic situation; the answer
+reveals which part of the system they'd touch, or why one alternative wins.
+
+Good:
+> A new request arrives while the batch is mid-decode. Which file decides
+> whether it waits for the next step or gets chunked in immediately?
+> <br>**Answer**: `schedule_batch.py` — `add_new_request()` at L88. Chunked
+> prefill (Ch 6) lets this request ride along instead of waiting.
+
+Bad (tests recall, not application):
+> What does KV cache stand for?
+
+Rules:
+- Offer **2–4 answer choices**, not free text — the reader clicks, sees the
+  result, learns why.
+- Every answer (right or wrong) gets a one-line explanation. Wrong answers
+  should be plausible — they teach what *not* to think.
+- Cite a real `file:line` in the correct answer's explanation.
+- Omit the block if no good scenario exists; never pad.
+
+Rendered as the `quiz` reader component (Step 4.2).
+
 ### Further Reading
 Link to the original papers and references that introduced the techniques
 used in this chapter. Not every chapter needs this — only chapters where the
@@ -512,6 +606,13 @@ Subtitle: <one-line hook>
 - SNIPPET: scheduler.py:L42-L78  (primary loop, verified in Step 1.5)
 - SNIPPET: schedule_batch.py:L12-L40  (data structure)
 
+### Code ↔ Plain English
+- PRIMARY_SNIPPET: scheduler.py:L42-L78
+- TRANSLATIONS (one per meaningful code line, domain-level not syntax):
+  - L43 → "Picks up the next group of requests ready to run."
+  - L47 → "Drops anyone who hit their token budget this step."
+  - L55 → "Packs the rest into a single GPU-friendly batch."
+
 ### Why This, Not That?
 - Chosen: <approach> because <reason>
 - Alternative: <approach> — pros/cons
@@ -529,6 +630,18 @@ Subtitle: <one-line hook>
 
 ### Key Takeaway
 - <one sentence>
+
+### Quick Check (optional — omit if no good scenario)
+- SCENARIO: <realistic one-sentence situation>
+- CHOICES:
+  - A) <plausible-wrong>
+  - B) <correct>
+  - C) <plausible-wrong>
+- CORRECT: B
+- EXPLANATIONS:
+  - A: <one line on why it's tempting but wrong>
+  - B: <one line; must cite file:line>
+  - C: <one line on why it's tempting but wrong>
 ```
 
 Each writer receives: **the binding chapter plan from Step 1.4** (title, subtitle, scope in/out, prerequisites, depth, target length for each assigned chapter), the verified citation list (Step 1.5), the Consistency Bible (Step 1.6), the deep-dive traces for their concepts, the target AUDIENCE level. Writers do not invent their own chapter titles, subtitles, or scope boundaries — those come from the plan. Writers **do not write prose** and must not — a writer that drifts into paragraphs fails the review in Step 2.3.
@@ -926,6 +1039,122 @@ Every attribute references a design-system token; swap the theme and the diagram
 
 **Default to SVG** for rows marked "inline SVG" unless the concept is genuinely textual (Tokenizer) or tabular (Calculator). Reach for `<div>` only when SVG would be overkill.
 
+### Step 4.2b: Reader Components
+
+Three reader-facing UI patterns every tutorial ships. The shell (Step 4.1)
+emits the CSS + the one global script; every chapter's draft expands into
+these DOM shapes. All three inherit design-system tokens — never hardcode.
+
+**1. Glossary tooltip** — hover any technical term → plain-English definition.
+
+Shell CSS (emit once):
+```css
+.glossary { border-bottom: 1px dashed var(--border-strong); cursor: help; position: relative; }
+.glossary[data-def]:hover::after,
+.glossary[data-def]:focus-visible::after {
+  content: attr(data-def);
+  position: absolute; bottom: calc(100% + 6px); left: 0;
+  max-width: 320px; padding: 8px 10px;
+  background: var(--bg-tertiary); color: var(--text-bright);
+  border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  font-size: 13px; font-weight: 400; line-height: 1.4;
+  white-space: normal; z-index: 50;
+}
+.glossary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+```
+
+Chapter-side emission:
+```html
+A <span class="glossary" tabindex="0" data-def="Table of previously computed attention values the model reuses instead of recomputing each token.">KV cache</span> lets decoding skip work it already did.
+```
+
+Every `data-def` value must come from the Glossary table in the Consistency
+Bible — never paraphrased in place. Tooltip text is plain, not HTML.
+
+**2. Code ↔ Plain English translation** — one per chapter, max.
+
+Shell CSS (emit once):
+```css
+.code-translate { display: grid; grid-template-columns: 1.2fr 1fr; gap: 0;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 1.5rem 0; }
+.code-translate > pre { margin: 0; background: var(--code-bg); padding: 16px 18px;
+  border-right: 1px solid var(--border); overflow-x: auto; }
+.code-translate > .plain { background: var(--bg-secondary); padding: 16px 18px; }
+.code-translate .plain-line { font-size: 14px; line-height: 1.55;
+  padding: 2px 0; color: var(--text-bright); }
+.code-translate .plain-line[data-line]::before {
+  content: "L" attr(data-line); display: inline-block; min-width: 2.6em;
+  margin-right: 0.6em; color: var(--text-secondary); font-variant-numeric: tabular-nums; font-size: 12px; }
+@media (max-width: 720px) { .code-translate { grid-template-columns: 1fr; }
+  .code-translate > pre { border-right: none; border-bottom: 1px solid var(--border); } }
+```
+
+Chapter-side emission:
+```html
+<figure class="code-translate">
+  <pre><code class="language-py"><!-- real snippet, verbatim --></code></pre>
+  <div class="plain">
+    <div class="plain-line" data-line="43">Picks up the next group of requests ready to run.</div>
+    <div class="plain-line" data-line="47">Drops anyone who hit their token budget this step.</div>
+    <div class="plain-line" data-line="55">Packs the rest into a single GPU-friendly batch.</div>
+  </div>
+</figure>
+```
+
+Translations must be **domain-level**, never syntactic paraphrase. The
+Step 4.3 gate spot-checks this by rejecting any plain-line starting with
+"Assigns", "Calls", "Returns", "Loops over" — a tell for syntax narration.
+
+**3. Quick Check quiz** — scenario, 2–4 choices, explanation per choice.
+
+Shell CSS + JS (emit once):
+```css
+.quiz { border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; margin: 1.5rem 0; background: var(--bg-secondary); }
+.quiz > .q-prompt { font-weight: 600; margin-bottom: 12px; color: var(--text-bright); }
+.quiz .q-choice { display: block; width: 100%; text-align: left;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; margin: 6px 0; cursor: pointer;
+  font: inherit; color: var(--text); transition: background 120ms, border-color 120ms; }
+.quiz .q-choice:hover { border-color: var(--border-strong); }
+.quiz .q-choice.correct { background: color-mix(in srgb, var(--green) 14%, var(--bg));
+  border-color: var(--green); }
+.quiz .q-choice.wrong   { background: color-mix(in srgb, var(--red) 14%, var(--bg));
+  border-color: var(--red); opacity: 0.85; }
+.quiz .q-explain { margin-top: 10px; padding: 10px 12px; border-radius: 6px;
+  background: var(--bg-tertiary); font-size: 14px; line-height: 1.5; display: none; }
+.quiz.answered .q-explain { display: block; }
+```
+```js
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.quiz .q-choice'); if (!btn) return;
+  const quiz = btn.closest('.quiz'); if (quiz.classList.contains('answered')) return;
+  const correct = btn.dataset.correct === 'true';
+  btn.classList.add(correct ? 'correct' : 'wrong');
+  quiz.classList.add('answered');
+  const expl = quiz.querySelector(`.q-explain[data-for="${btn.dataset.id}"]`);
+  if (expl) expl.style.display = 'block';
+});
+```
+
+Chapter-side emission:
+```html
+<aside class="quiz">
+  <div class="q-prompt">A new request arrives while the batch is mid-decode. Which file decides whether it waits for the next step or gets chunked in immediately?</div>
+  <button class="q-choice" data-id="a" data-correct="false">scheduler.py</button>
+  <button class="q-choice" data-id="b" data-correct="true">schedule_batch.py</button>
+  <button class="q-choice" data-id="c" data-correct="false">model_runner.py</button>
+  <div class="q-explain" data-for="a">Close — `scheduler.py` *orchestrates* the loop but doesn't admit individual requests.</div>
+  <div class="q-explain" data-for="b"><code>schedule_batch.py</code> — `add_new_request()` at L88. Chunked prefill (Ch 6) lets the new request ride along instead of waiting.</div>
+  <div class="q-explain" data-for="c">`model_runner.py` runs the forward pass; admission happens upstream.</div>
+</aside>
+```
+
+One quiz per chapter, maximum. Omit if the chapter has no genuine
+decision-point scenario — padding with fake-application quizzes is worse
+than no quiz.
+
 ### Step 4.3: Visual Consistency Gate
 
 Dispatch **1 subagent** (type: `general-purpose`) to run mechanical, invariant-shaped checks on the assembled HTML. These are grep-level, deterministic, and cheap — exactly the kind of check that catches regressions every run if skipped.
@@ -951,6 +1180,38 @@ Dispatch **1 subagent** (type: `general-purpose`) to run mechanical, invariant-s
 **Dark-mode gate**
 - If DESIGN.md has no dark palette, `grep -n "prefers-color-scheme" $OUTPUT` must return 0 hits.
 - If DESIGN.md has a dark palette, every token referenced inside the dark media query must exist in the palette.
+
+**Chapter 1 overview gate**
+- The first `<section class="chapter">` must contain at least one
+  `<svg class="diagram">` with **≥ 3 distinct labeled nodes** (count
+  `<text>` elements that aren't edge labels or axis ticks).
+- Every node label must resolve to exactly one of:
+  (a) a later chapter's title or subtitle in `chapter_plan.md`, or
+  (b) an entry in an explicit "Not covered" list inside Ch 1 itself.
+  Orphan labels (matching neither) are a fail — either a chapter is
+  missing, or the component shouldn't be drawn.
+- Ch 1 must contain **no `<pre>` code blocks longer than 12 lines** and
+  **no `<div class="interactive">`** other than the worked-example
+  animation (if any). This catches the most common failure mode: Ch 1
+  drifting into "let me also explain the scheduler real quick".
+
+**Reader-component gates**
+- **Glossary closure**: every `<span class="glossary" data-def="...">` term
+  must appear in the Consistency Bible Glossary, and its `data-def` must
+  match the Bible's definition byte-for-byte (no paraphrases). Grep extracts
+  the term text + `data-def`, diffs against `consistency.md` glossary.
+- **Code-translate syntax-narration ban**: no `.plain-line` may start with
+  "Assigns", "Calls", "Returns", "Loops over", "Sets", "Gets" — those are
+  syntactic paraphrases, not domain explanations. Fix in place.
+- **Quiz completeness**: every `.quiz` must have exactly one `data-correct="true"`
+  choice and a `.q-explain[data-for=...]` entry per choice. Missing explanations
+  are a fail.
+- **No wall-of-text sections**: for each `<section class="chapter">`, walk
+  the DOM within each `###`-level subsection and flag any run of more than
+  ~8 consecutive `<p>` elements without an interrupting visual
+  (`<pre>`, `<figure>`, `<aside class="quiz">`, `.code-translate`,
+  `svg.diagram`, `<div class="interactive">`, `<ul>`/`<ol>`, callout div).
+  Report violations as chapter ID + subsection heading.
 
 **Bounded-scroll gate (UI invariant)**
 Scroll must happen **inside** the content column, not at the page level. Checks:
