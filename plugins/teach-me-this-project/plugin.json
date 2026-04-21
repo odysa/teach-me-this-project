@@ -1,0 +1,21 @@
+{
+  "name": "teach-me-this-project",
+  "description": "Generate a single-file interactive HTML tutorial that explains how any software project works, from first principles to implementation details.",
+  "version": "0.1.0",
+  "author": {
+    "name": "odysa"
+  },
+  "homepage": "https://github.com/odysa/teach-me-this-project",
+  "repository": "https://github.com/odysa/teach-me-this-project",
+  "license": "MIT",
+  "keywords": [
+    "tutorial",
+    "documentation",
+    "explainer",
+    "interactive",
+    "html",
+    "github-pages",
+    "onboarding",
+    "codebase"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "teach-me-this-project",
+  "owner": {
+    "name": "odysa"
+  },
+  "metadata": {
+    "description": "Turn any GitHub repo into a publish-ready interactive HTML tutorial — animated diagrams, cited source snippets, one single-file site ready for GitHub Pages.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "teach-me-this-project",
+      "source": "./plugins/teach-me-this-project",
+      "description": "Generate a single-file interactive HTML tutorial that explains how any software project works, from first principles to implementation details.",
+      "version": "0.1.0",
+      "skills": ["./skills/teach-me-this-project"]
+    }
+  ]
+}

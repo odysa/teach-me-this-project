@@ -55,6 +55,8 @@ Non-obvious failure modes from past runs. Every executor must read this list and
 - **`Math.random()` in demos.** Two users comparing notes must see the same numbers. Every demo uses the seeded `rand()` helper from Step 4.2; resets re-seed from a fixed constant.
 - **Writer drift into prose during the raw pass.** Step 2.2 is bullets only. Prose at the raw stage forces a fact/prose entangled review, which defeats the two-pass design. Step 2.3 reviewers must kick prose back to bullet form.
 - **`<foreignObject>`, Mermaid, base64 PNG diagrams.** All break design-token inheritance. Diagrams must be authored as pure SVG with classes from the scaffold.
+- **Overlapping labels and boxes in SVG diagrams.** LLM-authored SVG can't measure rendered text width — agents guess from character count and routinely emit boxes that clip their own labels, or labels drawn on top of edge lines. The fix is a small set of sizing rules enforced at authoring time; see **Diagram Layout Discipline** in Step 4.2. Step 4.3 gate greps node width against the longest contained label text — boxes too narrow fail the gate.
+- **Unlinked paper references.** Writers drop the citation text but forget the URL, shipping "Fast Inference from Transformers via Speculative Decoding (Leviathan et al., 2023)" with no `<a href>` around it — the reader can see the paper name but can't click to read it. Every entry in `.further-reading` must wrap an `<a href="https://…">`; bare text citations fail the Step 4.3 gate. If no URL exists for a paper, don't cite it.
 - **Dark code blocks on a light-brand page.** A common default is "code is always dark, regardless of theme" — wrong for Claude and other light-parchment brands. Code blocks must use the brand's `--code-bg` token. On Claude that's `#f0eee6` (warm cream), not `#141413`. Syntax-highlight colors must be contrast-tested against the actual code surface, not copied from a dark-mode preset.
 - **Page-level scroll instead of content-level scroll.** If `.content` (the chapter column) has no bounded height, the entire browser window scrolls as one long strip — the sidebar scrolls away, the active chapter heading scrolls away, and switching chapters drops you wherever you happened to stop. The fix is structural CSS, not chapter length: the chapter container takes `height: 100vh; overflow-y: auto;` so scrolling happens **inside** the content column. Sidebar stays fixed, chapter scroll resets on navigation, page never extends past the viewport.
 
@@ -255,7 +257,25 @@ Ch1 → Ch2 → Ch3 → Ch4 → {Ch5, Ch6} → Ch7 → Ch8 → ...
 ```
 
 The agent applies these rules while planning:
-- **No chapter lives below 1,000 words of material** — if the deep-dive trace can't support that, merge into a sibling.
+- **Chapter 1 is always an architecture overview — non-negotiable.** Readers
+  need a map before a tour; every later chapter zooms into one region of
+  this map. Ch 1's plan entry must specify:
+  - **Depth**: `shallow (overview)` — no exceptions.
+  - **Figure/diagram anchor**: `architecture (full-system)` — a single
+    `svg.diagram` with every major component as a named node, connected
+    by the data-flow paths the system actually uses.
+  - **Scope (in)**: the full component list (one line per component
+    stating its role), one worked end-to-end request/input example traced
+    through the diagram with numbered arrows, and a pointer table
+    mapping each diagram component to the chapter that covers it.
+  - **Scope (out)**: every mechanism. Ch 1 never deep-dives — if a
+    paragraph would belong in Ch 3 or Ch 7, it goes there.
+  - **Target length**: ≤ 1,200 words (overrides the regular-chapter range).
+  - **Invariant**: every named node in the Ch 1 diagram must either (a)
+    be the subject of a later chapter, or (b) appear in Ch 1's explicit
+    "Not covered in this tutorial" list with a one-line reason. No orphan
+    boxes.
+- **No chapter lives below 1,000 words of material** — if the deep-dive trace can't support that, merge into a sibling. (Ch 1 is exempt from the floor but still held to the ≤ 1,200 ceiling above.)
 - **No chapter carries more than three independent concepts** — if it does, split.
 - **Every chapter's prerequisites must appear earlier in the list** — the final graph is a topological sort.
 - **Foundations come first, execution comes last** — respect the layer split even if a specific concept's researcher gave it a different priority.
@@ -354,6 +374,30 @@ one for the same concept.
 | Radix tree | filing cabinet with shared folder prefixes (Ch 4) |
 | ... | ... |
 
+## Glossary (reader-facing)
+Plain-English, one-line definitions for every technical term the tutorial uses
+without first defining it in prose. These power hover-to-define tooltips in
+the rendered HTML (Step 4.2 reader components). One entry per canonical term —
+aliases are handled by the Canonical Terminology table, not duplicated here.
+
+Definitions must be:
+- **≤ 140 characters**, so the tooltip fits in one line on mobile.
+- **self-contained** — no terms that would themselves need a tooltip.
+- **concrete over formal** — "a table the model looks up previously computed
+  attention values in" beats "cache of intermediate activations".
+
+| Term | Plain-English definition |
+|---|---|
+| KV cache | Table of previously computed attention values the model reuses instead of recomputing each token. |
+| Radix tree | A tree that shares common prefixes between keys, so matching two strings that start the same way costs only the differing tail. |
+| Prefill | The phase where the model reads the user's prompt in one big batch before generating anything. |
+| Decode | The phase where the model generates one token at a time, feeding each one back in. |
+| ... | ... |
+
+Every term that appears in a chapter's prose and is not introduced in-chapter
+must exist in this table. The Step 4.3 gate greps `class="glossary"` spans
+against this list.
+
 ## Chapter Length Targets
 Approximate word counts so no chapter balloons or starves. Deviate only with justification.
 
@@ -369,6 +413,17 @@ Approximate word counts so no chapter balloons or starves. Deviate only with jus
 - Code voice: present tense ("the scheduler picks the next batch"), not past or future.
 - Callouts: info = neutral explainer, success = key takeaway, warning = common pitfall.
   Never use info for warnings or vice versa.
+- **No wall-of-text sections**: within a single `###` subsection, no more
+  than **~8 consecutive paragraphs** without *any* visual interruption — a
+  code snippet, SVG diagram, demo, callout, table, or list. This is a
+  page-level floor, not per-paragraph pacing — engineering prose explaining
+  *why* an algorithm works is welcome; an unbroken essay is not.
+  Enforced by Step 2.5 polish and Step 4.3 gate.
+- **Metaphor fit-for-purpose**: each analogy in the Reusable Analogies table
+  must map tightly to the specific concept it pairs with. Generic metaphors
+  (a recipe, a factory, a conveyor belt) applied to multiple unrelated
+  concepts are forbidden — once "factory" is used, it's used for one concept
+  only; find a different metaphor for the next one.
 ```
 
 The agent produces this file and reports only its path back. The orchestrator does not read the contents — every downstream writer/reviewer does.
@@ -447,13 +502,49 @@ Embed actual source code snippets from Phase 1.
 - Trim to 10-40 lines per snippet
 - Always include `# source:` tag with file path
 
+### Quick Check
+One optional scenario-based quiz per chapter, placed after *Key Takeaway*.
+Tests whether the reader can **apply** the chapter, not whether they memorized
+a definition. The question describes a realistic situation; the answer
+reveals which part of the system they'd touch, or why one alternative wins.
+
+Good:
+> A new request arrives while the batch is mid-decode. Which file decides
+> whether it waits for the next step or gets chunked in immediately?
+> <br>**Answer**: `schedule_batch.py` — `add_new_request()` at L88. Chunked
+> prefill (Ch 6) lets this request ride along instead of waiting.
+
+Bad (tests recall, not application):
+> What does KV cache stand for?
+
+Rules:
+- Offer **2–4 answer choices**, not free text — the reader clicks, sees the
+  result, learns why.
+- Every answer (right or wrong) gets a one-line explanation. Wrong answers
+  should be plausible — they teach what *not* to think.
+- Cite a real `file:line` in the correct answer's explanation.
+- Omit the block if no good scenario exists; never pad.
+
+Rendered as the `quiz` reader component (Step 4.2).
+
 ### Further Reading
 Link to the original papers and references that introduced the techniques
 used in this chapter. Not every chapter needs this — only chapters where the
 technique has a clear research origin (most do in systems/ML codebases).
 
-Format as a compact list:
-- Paper title (Authors, Year) — one-line summary. [arXiv link]
+Every entry **must** include a real, resolvable URL — arXiv, DOI, project
+homepage, or canonical blog post. If you can't find a URL, don't cite the
+paper; a reference the reader can't click is dead weight. No bare text
+citations.
+
+Format each entry as a rendered markdown link (not a placeholder):
+
+```markdown
+- [Fast Inference from Transformers via Speculative Decoding](https://arxiv.org/abs/2211.17192) — Leviathan et al., 2023. Introduced the draft-then-verify paradigm.
+```
+
+The literal string `[arXiv link]` or `<arxiv>` must never appear in the
+output — these are placeholders from the template, not content.
 
 ### Interactive Demo
 Description of the interactive visualization.
@@ -525,10 +616,26 @@ Subtitle: <one-line hook>
 - Insight delivered: <one line>
 
 ### Papers & References
-- "<Paper title>" — <authors, year>. <arxiv>. Implemented in: <files>
+- TITLE: "<Paper title>"
+  AUTHORS_YEAR: <Leviathan et al., 2023>
+  URL: <https://arxiv.org/abs/2211.17192>   # REQUIRED — arXiv, DOI, or canonical page. Omit entry if no URL exists.
+  SUMMARY: <one-line contribution>
+  IMPLEMENTED_IN: <files>
 
 ### Key Takeaway
 - <one sentence>
+
+### Quick Check (optional — omit if no good scenario)
+- SCENARIO: <realistic one-sentence situation>
+- CHOICES:
+  - A) <plausible-wrong>
+  - B) <correct>
+  - C) <plausible-wrong>
+- CORRECT: B
+- EXPLANATIONS:
+  - A: <one line on why it's tempting but wrong>
+  - B: <one line; must cite file:line>
+  - C: <one line on why it's tempting but wrong>
 ```
 
 Each writer receives: **the binding chapter plan from Step 1.4** (title, subtitle, scope in/out, prerequisites, depth, target length for each assigned chapter), the verified citation list (Step 1.5), the Consistency Bible (Step 1.6), the deep-dive traces for their concepts, the target AUDIENCE level. Writers do not invent their own chapter titles, subtitles, or scope boundaries — those come from the plan. Writers **do not write prose** and must not — a writer that drifts into paragraphs fails the review in Step 2.3.
@@ -887,6 +994,53 @@ svg.diagram :where(.pulse)   { animation: diagram-pulse 1.2s ease-in-out infinit
 | Corner radius | `rx="8"` for nodes (matches button radius from the design system) | Sharp corners unless the design system uses them |
 | Stroke width | `1.5` default, `2.5` for active/emphasis | `1` (too thin on retina) or `≥3` (too heavy) |
 
+**Diagram Layout Discipline — non-negotiable**:
+
+LLM-authored SVG has no font-metric access. Agents guess text width from character count, and the guess is almost always too narrow. Four rules kill the overlap bugs this causes:
+
+| Rule | How to apply it | Why |
+|---|---|---|
+| **Box ≥ text + padding** | `rect width ≥ (longest_label_chars × 7) + 32`, `height ≥ (line_count × 20) + 16`. Use the longest label in the box as the measuring stick — *not* the average. | Default 13px `font-size: 13px` on `<text>` renders ~6.5–7px per char in a sans-serif stack. 32px padding = 16px each side. |
+| **Wrap long labels** | Any label > 14 chars breaks into `<tspan x="..." dy="..."/>` lines of ≤ 14 chars each; `dy="18"` per new line; box height grows to `(lines × 20) + 16`. | One-line text shrunk to fit clips more often than multi-line text rendered at normal size. |
+| **Halo text that crosses an edge** | For any `<text>` placed on top of a `<path class="edge">` or between nodes, emit a matching `<rect class="text-halo">` *before* the `<text>` element in z-order, sized to `(chars × 7 + 10) × 18`, centered on the same coords. | SVG has no text-outline primitive that inherits theme tokens; a halo rect is the cheap, universal fix. |
+| **Gutter between nodes** | ≥ **24px horizontal**, ≥ **16px vertical** between any two sibling `<rect>` nodes. Add to `viewBox` so nothing touches the edge either — pad the viewBox by **24px on all sides** after computing the content bounding box. | Two nodes that visually touch read as one merged node. Labels at the edge clip. |
+
+Shell scaffold adds one more class (emit with the rest of `svg.diagram` CSS):
+```css
+svg.diagram :where(.text-halo) { fill: var(--bg); stroke: none; rx: 4; }
+```
+
+**Sizing worked example** — a node containing the label "Scheduler loop":
+- longest label chars = 14
+- width = `14 × 7 + 32 = 130` → round up to `140`
+- height = `1 × 20 + 16 = 36` → round up to `40`
+- emit `<rect class="node" x="..." y="..." width="140" height="40" rx="8"/>`, then `<text x="..." y="..." text-anchor="middle" dominant-baseline="middle">Scheduler loop</text>`.
+
+**Wrap worked example** — a node containing "Continuous batching scheduler":
+- Total 29 chars, > 14 → wrap: `"Continuous"` / `"batching scheduler"` (longest line 18 chars)
+- width = `18 × 7 + 32 = 158` → round up to `160`
+- height = `2 × 20 + 16 = 56` → round up to `60`
+- emit
+  ```html
+  <rect class="node" x="..." y="..." width="160" height="60" rx="8"/>
+  <text x="..." y="..." text-anchor="middle">
+    <tspan x="..." dy="0">Continuous</tspan>
+    <tspan x="..." dy="18">batching scheduler</tspan>
+  </text>
+  ```
+
+**Halo worked example** — an edge label "backpressure" sitting on top of a `<path class="edge">`:
+```html
+<rect class="text-halo" x="192" y="110" width="96" height="18"/>
+<text x="240" y="124" text-anchor="middle" class="label-sub">backpressure</text>
+```
+The halo sits *before* the text, so the text paints on top of it; the halo sits *after* the edge path, so it masks the line underneath the label. Order matters.
+
+**Do not**:
+- Resize text to fit an undersized box (`font-size: 9px` to squeeze "Continuous batching" into a 100px rect). The gate rejects `<text>` with `font-size` below 11px.
+- Rotate labels to fit them. A readable diagram is worth an extra 30px of width.
+- Use more than one `<tspan>` line per label without also growing the box height by the formula above.
+
 **Interactivity** mirrors the rest of the UI: add `.edge-active` / `.node-accent` by toggling classes from JS on user interaction — never by mutating inline `fill`/`stroke` attributes. Hover states should use CSS `:hover` on the SVG group, not JS listeners, whenever the interaction is purely visual.
 
 **Do not** use `<foreignObject>`, Mermaid, canvas rasters, or base64-embedded PNGs — all of these break theme inheritance. If a diagram requires text wrapping across multiple lines, use multiple `<tspan>` elements.
@@ -926,6 +1080,88 @@ Every attribute references a design-system token; swap the theme and the diagram
 
 **Default to SVG** for rows marked "inline SVG" unless the concept is genuinely textual (Tokenizer) or tabular (Calculator). Reach for `<div>` only when SVG would be overkill.
 
+### Step 4.2b: Reader Components
+
+Three reader-facing UI patterns every tutorial ships. The shell (Step 4.1)
+emits the CSS + the one global script; every chapter's draft expands into
+these DOM shapes. All three inherit design-system tokens — never hardcode.
+
+**1. Glossary tooltip** — hover any technical term → plain-English definition.
+
+Shell CSS (emit once):
+```css
+.glossary { border-bottom: 1px dashed var(--border-strong); cursor: help; position: relative; }
+.glossary[data-def]:hover::after,
+.glossary[data-def]:focus-visible::after {
+  content: attr(data-def);
+  position: absolute; bottom: calc(100% + 6px); left: 0;
+  max-width: 320px; padding: 8px 10px;
+  background: var(--bg-tertiary); color: var(--text-bright);
+  border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  font-size: 13px; font-weight: 400; line-height: 1.4;
+  white-space: normal; z-index: 50;
+}
+.glossary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+```
+
+Chapter-side emission:
+```html
+A <span class="glossary" tabindex="0" data-def="Table of previously computed attention values the model reuses instead of recomputing each token.">KV cache</span> lets decoding skip work it already did.
+```
+
+Every `data-def` value must come from the Glossary table in the Consistency
+Bible — never paraphrased in place. Tooltip text is plain, not HTML.
+
+**2. Quick Check quiz** — scenario, 2–4 choices, explanation per choice.
+
+Shell CSS + JS (emit once):
+```css
+.quiz { border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; margin: 1.5rem 0; background: var(--bg-secondary); }
+.quiz > .q-prompt { font-weight: 600; margin-bottom: 12px; color: var(--text-bright); }
+.quiz .q-choice { display: block; width: 100%; text-align: left;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; margin: 6px 0; cursor: pointer;
+  font: inherit; color: var(--text); transition: background 120ms, border-color 120ms; }
+.quiz .q-choice:hover { border-color: var(--border-strong); }
+.quiz .q-choice.correct { background: color-mix(in srgb, var(--green) 14%, var(--bg));
+  border-color: var(--green); }
+.quiz .q-choice.wrong   { background: color-mix(in srgb, var(--red) 14%, var(--bg));
+  border-color: var(--red); opacity: 0.85; }
+.quiz .q-explain { margin-top: 10px; padding: 10px 12px; border-radius: 6px;
+  background: var(--bg-tertiary); font-size: 14px; line-height: 1.5; display: none; }
+.quiz.answered .q-explain { display: block; }
+```
+```js
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.quiz .q-choice'); if (!btn) return;
+  const quiz = btn.closest('.quiz'); if (quiz.classList.contains('answered')) return;
+  const correct = btn.dataset.correct === 'true';
+  btn.classList.add(correct ? 'correct' : 'wrong');
+  quiz.classList.add('answered');
+  const expl = quiz.querySelector(`.q-explain[data-for="${btn.dataset.id}"]`);
+  if (expl) expl.style.display = 'block';
+});
+```
+
+Chapter-side emission:
+```html
+<aside class="quiz">
+  <div class="q-prompt">A new request arrives while the batch is mid-decode. Which file decides whether it waits for the next step or gets chunked in immediately?</div>
+  <button class="q-choice" data-id="a" data-correct="false">scheduler.py</button>
+  <button class="q-choice" data-id="b" data-correct="true">schedule_batch.py</button>
+  <button class="q-choice" data-id="c" data-correct="false">model_runner.py</button>
+  <div class="q-explain" data-for="a">Close — `scheduler.py` *orchestrates* the loop but doesn't admit individual requests.</div>
+  <div class="q-explain" data-for="b"><code>schedule_batch.py</code> — `add_new_request()` at L88. Chunked prefill (Ch 6) lets the new request ride along instead of waiting.</div>
+  <div class="q-explain" data-for="c">`model_runner.py` runs the forward pass; admission happens upstream.</div>
+</aside>
+```
+
+One quiz per chapter, maximum. Omit if the chapter has no genuine
+decision-point scenario — padding with fake-application quizzes is worse
+than no quiz.
+
 ### Step 4.3: Visual Consistency Gate
 
 Dispatch **1 subagent** (type: `general-purpose`) to run mechanical, invariant-shaped checks on the assembled HTML. These are grep-level, deterministic, and cheap — exactly the kind of check that catches regressions every run if skipped.
@@ -951,6 +1187,58 @@ Dispatch **1 subagent** (type: `general-purpose`) to run mechanical, invariant-s
 **Dark-mode gate**
 - If DESIGN.md has no dark palette, `grep -n "prefers-color-scheme" $OUTPUT` must return 0 hits.
 - If DESIGN.md has a dark palette, every token referenced inside the dark media query must exist in the palette.
+
+**Diagram layout gate** — for every `<svg class="diagram">`:
+- For every `<rect class="node">` that contains a `<text>` label, compute
+  `expected_width = (longest_line_chars × 7) + 32`. If the node's `width`
+  attribute is less than `expected_width`, the box clips its label → fail
+  and expand the node.
+- For every `<text>` with `font-size` attribute present, assert value ≥ 11.
+  Lower values mean someone shrunk the label to fit; fix by growing the
+  box, not shrinking the text.
+- For every `<text>` element whose y-coordinate places it on or crossing
+  a `<path class="edge">`, assert a `<rect class="text-halo">` appears
+  immediately before the `<text>` in source order (same approximate
+  coords). Missing halo → fail.
+- `viewBox` padding: after computing the tightest bounding box of every
+  `<rect>` and `<text>`, assert the viewBox extends at least 24px beyond
+  on all four sides. Tight viewBoxes clip outer labels.
+
+**Chapter 1 overview gate**
+- The first `<section class="chapter">` must contain at least one
+  `<svg class="diagram">` with **≥ 3 distinct labeled nodes** (count
+  `<text>` elements that aren't edge labels or axis ticks).
+- Every node label must resolve to exactly one of:
+  (a) a later chapter's title or subtitle in `chapter_plan.md`, or
+  (b) an entry in an explicit "Not covered" list inside Ch 1 itself.
+  Orphan labels (matching neither) are a fail — either a chapter is
+  missing, or the component shouldn't be drawn.
+- Ch 1 must contain **no `<pre>` code blocks longer than 12 lines** and
+  **no `<div class="interactive">`** other than the worked-example
+  animation (if any). This catches the most common failure mode: Ch 1
+  drifting into "let me also explain the scheduler real quick".
+
+**Reader-component gates**
+- **Glossary closure**: every `<span class="glossary" data-def="...">` term
+  must appear in the Consistency Bible Glossary, and its `data-def` must
+  match the Bible's definition byte-for-byte (no paraphrases). Grep extracts
+  the term text + `data-def`, diffs against `consistency.md` glossary.
+- **References are hyperlinks**: every `<li>` inside `.further-reading` must
+  contain at least one `<a href="http...">` element whose `href` starts with
+  `https://` (or `http://` — `arxiv.org`, `doi.org`, project homepages, canonical
+  blog posts). Bare text paper citations fail the gate. Additionally: the
+  literal strings `[arXiv link]`, `<arxiv>`, `<url>`, or `(TBD)` must not
+  appear anywhere in the output — they are template placeholders the writer
+  forgot to fill in.
+- **Quiz completeness**: every `.quiz` must have exactly one `data-correct="true"`
+  choice and a `.q-explain[data-for=...]` entry per choice. Missing explanations
+  are a fail.
+- **No wall-of-text sections**: for each `<section class="chapter">`, walk
+  the DOM within each `###`-level subsection and flag any run of more than
+  ~8 consecutive `<p>` elements without an interrupting visual
+  (`<pre>`, `<figure>`, `<aside class="quiz">`,
+  `svg.diagram`, `<div class="interactive">`, `<ul>`/`<ol>`, callout div).
+  Report violations as chapter ID + subsection heading.
 
 **Bounded-scroll gate (UI invariant)**
 Scroll must happen **inside** the content column, not at the page level. Checks:
