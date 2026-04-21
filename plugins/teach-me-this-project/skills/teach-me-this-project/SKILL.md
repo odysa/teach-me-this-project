@@ -56,6 +56,7 @@ Non-obvious failure modes from past runs. Every executor must read this list and
 - **Writer drift into prose during the raw pass.** Step 2.2 is bullets only. Prose at the raw stage forces a fact/prose entangled review, which defeats the two-pass design. Step 2.3 reviewers must kick prose back to bullet form.
 - **`<foreignObject>`, Mermaid, base64 PNG diagrams.** All break design-token inheritance. Diagrams must be authored as pure SVG with classes from the scaffold.
 - **Overlapping labels and boxes in SVG diagrams.** LLM-authored SVG can't measure rendered text width — agents guess from character count and routinely emit boxes that clip their own labels, or labels drawn on top of edge lines. The fix is a small set of sizing rules enforced at authoring time; see **Diagram Layout Discipline** in Step 4.2. Step 4.3 gate greps node width against the longest contained label text — boxes too narrow fail the gate.
+- **Unlinked paper references.** Writers drop the citation text but forget the URL, shipping "Fast Inference from Transformers via Speculative Decoding (Leviathan et al., 2023)" with no `<a href>` around it — the reader can see the paper name but can't click to read it. Every entry in `.further-reading` must wrap an `<a href="https://…">`; bare text citations fail the Step 4.3 gate. If no URL exists for a paper, don't cite it.
 - **Dark code blocks on a light-brand page.** A common default is "code is always dark, regardless of theme" — wrong for Claude and other light-parchment brands. Code blocks must use the brand's `--code-bg` token. On Claude that's `#f0eee6` (warm cream), not `#141413`. Syntax-highlight colors must be contrast-tested against the actual code surface, not copied from a dark-mode preset.
 - **Page-level scroll instead of content-level scroll.** If `.content` (the chapter column) has no bounded height, the entire browser window scrolls as one long strip — the sidebar scrolls away, the active chapter heading scrolls away, and switching chapters drops you wherever you happened to stop. The fix is structural CSS, not chapter length: the chapter container takes `height: 100vh; overflow-y: auto;` so scrolling happens **inside** the content column. Sidebar stays fixed, chapter scroll resets on navigation, page never extends past the viewport.
 
@@ -501,22 +502,6 @@ Embed actual source code snippets from Phase 1.
 - Trim to 10-40 lines per snippet
 - Always include `# source:` tag with file path
 
-### Code ↔ Plain English
-For the single most important snippet in the chapter (usually the one named
-in *How It Works*), pair the real source on the left with a plain-English
-translation on the right — one English line per meaningful code line, not one
-per syntactic line. The translation explains *what the line accomplishes in
-the problem domain*, not *what the syntax does*.
-
-- ❌ "This line assigns the result of `scheduler.pop()` to `batch`." (syntax)
-- ✅ "Grabs the next group of requests ready to run together." (domain)
-
-Skip this block for chapters where the central insight is purely conceptual
-(no single snippet is load-bearing). Never include more than one Code↔English
-block per chapter — it's a spotlight, not a line-by-line annotation.
-
-Rendered as the `code-translate` reader component (Step 4.2).
-
 ### Quick Check
 One optional scenario-based quiz per chapter, placed after *Key Takeaway*.
 Tests whether the reader can **apply** the chapter, not whether they memorized
@@ -547,8 +532,19 @@ Link to the original papers and references that introduced the techniques
 used in this chapter. Not every chapter needs this — only chapters where the
 technique has a clear research origin (most do in systems/ML codebases).
 
-Format as a compact list:
-- Paper title (Authors, Year) — one-line summary. [arXiv link]
+Every entry **must** include a real, resolvable URL — arXiv, DOI, project
+homepage, or canonical blog post. If you can't find a URL, don't cite the
+paper; a reference the reader can't click is dead weight. No bare text
+citations.
+
+Format each entry as a rendered markdown link (not a placeholder):
+
+```markdown
+- [Fast Inference from Transformers via Speculative Decoding](https://arxiv.org/abs/2211.17192) — Leviathan et al., 2023. Introduced the draft-then-verify paradigm.
+```
+
+The literal string `[arXiv link]` or `<arxiv>` must never appear in the
+output — these are placeholders from the template, not content.
 
 ### Interactive Demo
 Description of the interactive visualization.
@@ -607,13 +603,6 @@ Subtitle: <one-line hook>
 - SNIPPET: scheduler.py:L42-L78  (primary loop, verified in Step 1.5)
 - SNIPPET: schedule_batch.py:L12-L40  (data structure)
 
-### Code ↔ Plain English
-- PRIMARY_SNIPPET: scheduler.py:L42-L78
-- TRANSLATIONS (one per meaningful code line, domain-level not syntax):
-  - L43 → "Picks up the next group of requests ready to run."
-  - L47 → "Drops anyone who hit their token budget this step."
-  - L55 → "Packs the rest into a single GPU-friendly batch."
-
 ### Why This, Not That?
 - Chosen: <approach> because <reason>
 - Alternative: <approach> — pros/cons
@@ -627,7 +616,11 @@ Subtitle: <one-line hook>
 - Insight delivered: <one line>
 
 ### Papers & References
-- "<Paper title>" — <authors, year>. <arxiv>. Implemented in: <files>
+- TITLE: "<Paper title>"
+  AUTHORS_YEAR: <Leviathan et al., 2023>
+  URL: <https://arxiv.org/abs/2211.17192>   # REQUIRED — arXiv, DOI, or canonical page. Omit entry if no URL exists.
+  SUMMARY: <one-line contribution>
+  IMPLEMENTED_IN: <files>
 
 ### Key Takeaway
 - <one sentence>
@@ -1120,41 +1113,7 @@ A <span class="glossary" tabindex="0" data-def="Table of previously computed att
 Every `data-def` value must come from the Glossary table in the Consistency
 Bible — never paraphrased in place. Tooltip text is plain, not HTML.
 
-**2. Code ↔ Plain English translation** — one per chapter, max.
-
-Shell CSS (emit once):
-```css
-.code-translate { display: grid; grid-template-columns: 1.2fr 1fr; gap: 0;
-  border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 1.5rem 0; }
-.code-translate > pre { margin: 0; background: var(--code-bg); padding: 16px 18px;
-  border-right: 1px solid var(--border); overflow-x: auto; }
-.code-translate > .plain { background: var(--bg-secondary); padding: 16px 18px; }
-.code-translate .plain-line { font-size: 14px; line-height: 1.55;
-  padding: 2px 0; color: var(--text-bright); }
-.code-translate .plain-line[data-line]::before {
-  content: "L" attr(data-line); display: inline-block; min-width: 2.6em;
-  margin-right: 0.6em; color: var(--text-secondary); font-variant-numeric: tabular-nums; font-size: 12px; }
-@media (max-width: 720px) { .code-translate { grid-template-columns: 1fr; }
-  .code-translate > pre { border-right: none; border-bottom: 1px solid var(--border); } }
-```
-
-Chapter-side emission:
-```html
-<figure class="code-translate">
-  <pre><code class="language-py"><!-- real snippet, verbatim --></code></pre>
-  <div class="plain">
-    <div class="plain-line" data-line="43">Picks up the next group of requests ready to run.</div>
-    <div class="plain-line" data-line="47">Drops anyone who hit their token budget this step.</div>
-    <div class="plain-line" data-line="55">Packs the rest into a single GPU-friendly batch.</div>
-  </div>
-</figure>
-```
-
-Translations must be **domain-level**, never syntactic paraphrase. The
-Step 4.3 gate spot-checks this by rejecting any plain-line starting with
-"Assigns", "Calls", "Returns", "Loops over" — a tell for syntax narration.
-
-**3. Quick Check quiz** — scenario, 2–4 choices, explanation per choice.
+**2. Quick Check quiz** — scenario, 2–4 choices, explanation per choice.
 
 Shell CSS + JS (emit once):
 ```css
@@ -1264,16 +1223,20 @@ Dispatch **1 subagent** (type: `general-purpose`) to run mechanical, invariant-s
   must appear in the Consistency Bible Glossary, and its `data-def` must
   match the Bible's definition byte-for-byte (no paraphrases). Grep extracts
   the term text + `data-def`, diffs against `consistency.md` glossary.
-- **Code-translate syntax-narration ban**: no `.plain-line` may start with
-  "Assigns", "Calls", "Returns", "Loops over", "Sets", "Gets" — those are
-  syntactic paraphrases, not domain explanations. Fix in place.
+- **References are hyperlinks**: every `<li>` inside `.further-reading` must
+  contain at least one `<a href="http...">` element whose `href` starts with
+  `https://` (or `http://` — `arxiv.org`, `doi.org`, project homepages, canonical
+  blog posts). Bare text paper citations fail the gate. Additionally: the
+  literal strings `[arXiv link]`, `<arxiv>`, `<url>`, or `(TBD)` must not
+  appear anywhere in the output — they are template placeholders the writer
+  forgot to fill in.
 - **Quiz completeness**: every `.quiz` must have exactly one `data-correct="true"`
   choice and a `.q-explain[data-for=...]` entry per choice. Missing explanations
   are a fail.
 - **No wall-of-text sections**: for each `<section class="chapter">`, walk
   the DOM within each `###`-level subsection and flag any run of more than
   ~8 consecutive `<p>` elements without an interrupting visual
-  (`<pre>`, `<figure>`, `<aside class="quiz">`, `.code-translate`,
+  (`<pre>`, `<figure>`, `<aside class="quiz">`,
   `svg.diagram`, `<div class="interactive">`, `<ul>`/`<ol>`, callout div).
   Report violations as chapter ID + subsection heading.
 
